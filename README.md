@@ -111,18 +111,23 @@ This will open a GUI interface where you can:
 - **Setup-RAG.ps1**: Initializes the RAG environment for a specified directory
 - **Start-RAG.ps1**: Starts the file monitoring and processing system
 - **Chat-RAG.ps1**: Provides a GUI for interacting with the RAG system
-- **Process-DirtyFiles.ps1**: Processes files that have been marked as changed
+- **Process-Collection.ps1**: Processes files that have been marked as changed
 - **Update-LocalChromaDb.ps1**: Updates the vector database with new embeddings
 - **Get-ChunkEmbeddings.ps1**: Generates embeddings for document chunks
 - **Start-RAGProxy.ps1**: Runs the API server that handles RAG operations
+- **Start-FileTracker.ps1**: Runs the REST API server for file tracking system
 
 ## Documentation
 
 - [Start-RAGProxy Documentation](./Docs/Start-RAGProxy_Documentation.md): Details on configuring and running the RAG proxy server
 - [REST API Documentation](./Docs/REST_API_Documentation.md): Comprehensive guide to the REST API endpoints, parameters, and integration examples
 - [Get-ChunkEmbeddings README](./Docs/Get-ChunkEmbeddings_README.md): Information about the embedding generation process
-- [Process-DirtyFiles README](./Docs/Process-DirtyFiles_README.md): Documentation for the file processing system
+- [Process-Collection README](./Docs/Process-Collection_README.md): Documentation for the file processing system
 - [Update-LocalChromaDb README](./Docs/Update-LocalChromaDb_README.md): Guide to updating the vector database
+- [Get-FileTrackerStatus README](./Docs/Get-FileTrackerStatus_README.md): Documentation for checking file tracking status
+- [Init-ProcessorForCollection README](./Docs/Init-ProcessorForCollection_README.md): Guide to initializing custom processors
+- [Start-FileTracker Documentation](./Docs/Start-FileTracker_Documentation.md): Information on running the FileTracker API server
+- [FileTracker REST API](./Docs/Start-FileTracker_REST_API.md): Documentation for the FileTracker REST API endpoints
 
 ## Contributing
 

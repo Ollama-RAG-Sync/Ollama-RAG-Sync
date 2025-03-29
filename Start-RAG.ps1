@@ -70,7 +70,7 @@ param (
     [string]$EmbeddingModel = "mxbai-embed-large:latest",
     
     [Parameter(Mandatory = $false)]
-    [string]$OllamaBaseUrl = "http://localhost:11434",
+    [string]$OllamaUrl = "http://localhost:11434",
     
     [Parameter(Mandatory = $false)]
     [string]$FileFilter = "*.*",
@@ -165,73 +165,161 @@ if (-not (Test-Path -Path $tempDir)) {
     New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
 }
 
-# Start the file tracker watcher
-Write-Log "Starting file tracker watcher for directory '$DirectoryPath'..." -Level "INFO"
+# Start Vectors subsystem
+Write-Log "Starting Vectors subsystem..." -Level "INFO"
 try {
-    $jobScript = {
-        try {
-            
-            # Function to log with timestamp
-            function LogMessage {
-                param([string]$Message)
-                
-                $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-                Write-Host "[$timestamp] $Message"
-            }
-
-            LogMessage "Starting periodic dirty files processor."
-            LogMessage "Will watch for changes every $ProcessInterval minutes."
-
-            # Run the ProcessDirtyFiles.ps1 script
-            $output = & "FileTracker\Watch-FileTracker.ps1" -DirectoryToWatch $using:DirectoryPath -FileFilter $FileFilter -WatchCreated -WatchModified -WatchDeleted -WatchRenamed -IncludeSubdirectories -LogPath (Join-Path -Path $using:tempDir -ChildPath "watcher.log") -OmitFolders @('.ai')
-
-            # Log any output from the script
-            foreach ($line in $output) {
-                LogMessage "ProcessDirtyFiles: $line"
-            }
-        }
-        catch {
-            Write-Host $_
-        }
-        
+    $vectorsScript = Join-Path -Path $scriptDirectory -ChildPath "Vectors\Start-Vectors.ps1"
+    $vectorsAPIScript = Join-Path -Path $scriptDirectory -ChildPath "Vectors\Start-VectorsAPI.ps1"
+    
+    # Verify scripts exist
+    if (-not (Test-Path -Path $vectorsScript)) {
+        Write-Log "Start-Vectors.ps1 script not found at: $vectorsScript" -Level "ERROR"
+        exit 1
     }
-    $fileTrackerWatcherProcess = Start-Job -ScriptBlock $jobScript 
-    Write-Log "Watch files job started successfully (Job ID: $($fileTrackerWatcherProcess.Id))" -Level "INFO"
+    
+    if (-not (Test-Path -Path $vectorsAPIScript)) {
+        Write-Log "Start-VectorsAPI.ps1 script not found at: $vectorsAPIScript" -Level "ERROR"
+        exit 1
+    }
+    
+    # Start Vectors API as a background job
+    $vectorsAPIJobScript = {
+        param($scriptPath, $chromaDbPath, $ollamaUrl, $embeddingModel, $chunkSize, $chunkOverlap, $apiPort)
+        & $scriptPath -ChromaDbPath $chromaDbPath -OllamaUrl $ollamaUrl -EmbeddingModel $embeddingModel -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -Port $apiPort
+    }
+    
+    $vectorsAPIPort = 8082
+    $vectorsAPIJob = Start-Job -ScriptBlock $vectorsAPIJobScript -ArgumentList $vectorsAPIScript, $vectorDbPath, $OllamaUrl, $EmbeddingModel, $ChunkSize, $ChunkOverlap, $vectorsAPIPort
+    
+    # Wait a moment for the API to start
+    Start-Sleep -Seconds 2
+    
+    Write-Log "Vectors API started successfully (Job ID: $($vectorsAPIJob.Id))" -Level "INFO"
+    Write-Log "Vectors API available at: http://localhost:$vectorsAPIPort/" -Level "INFO"
 }
 catch {
-    Write-Log "Error setting up watch files job: $_" -Level "ERROR"
-    # Try to stop the file tracker watcher if it was started
-    if ($fileTrackerWatcherProcess -and -not $fileTrackerWatcherProcess.HasExited) {
-        Stop-Process -Id $fileTrackerWatcherProcess.Id -Force
-    }
+    Write-Log "Error starting Vectors subsystem: $_" -Level "ERROR"
     exit 1
 }
 
-# Start a background job to process dirty files periodically
-Write-Log "Setting up periodic processing of dirty files (every $ProcessInterval seconds)..." -Level "INFO"
+# Start the FileTracker subsystem
+Write-Log "Starting FileTracker subsystem..." -Level "INFO"
 try {
-    $output = & ".\Processing\Process-DirtyFiles.ps1" -DirectoryPath $DirectoryPath -ProcessorScript ".\Processing\Update-LocalChromaDb.ps1" &
-    Write-Log "Dirty files processor job started successfully (Job ID: $($processingJob.Id))" -Level "INFO"
+    # Create a default collection name based on directory path
+    $collectionName = "Default-Collection"
+    
+    # Start FileTracker API service
+    $fileTrackerScript = Join-Path -Path $scriptDirectory -ChildPath "FileTracker\Start-FileTracker.ps1"
+    
+    # Verify script exists
+    if (-not (Test-Path -Path $fileTrackerScript)) {
+        Write-Log "Start-FileTracker.ps1 script not found at: $fileTrackerScript" -Level "ERROR"
+        exit 1
+    }
+    
+    # Start FileTracker as a background job
+    $fileTrackerJobScript = {
+        param($scriptPath, $installPath, $omitFolders, $port)
+        & $scriptPath -InstallPath $installPath -OmitFolders $omitFolders -Port $port
+    }
+    
+    $fileTrackerPort = 8080
+    $fileTrackerJob = Start-Job -ScriptBlock $fileTrackerJobScript -ArgumentList $fileTrackerScript, $DirectoryPath, @('.ai', '.git', 'node_modules'), $fileTrackerPort
+    
+    # Wait a moment for the FileTracker to start
+    Start-Sleep -Seconds 2
+    
+    Write-Log "FileTracker started successfully (Job ID: $($fileTrackerJob.Id))" -Level "INFO"
+    Write-Log "FileTracker API available at: http://localhost:$fileTrackerPort/api" -Level "INFO"
+    
+    # Start watching the collection using the FileTracker API
+    $watchCollectionScript = Join-Path -Path $scriptDirectory -ChildPath "FileTracker\Start-CollectionWatch.ps1"
+    
+    # Verify script exists
+    if (-not (Test-Path -Path $watchCollectionScript)) {
+        Write-Log "Start-CollectionWatch.ps1 script not found at: $watchCollectionScript" -Level "ERROR"
+        exit 1
+    }
+    
+    # Create watch job
+    $watchCollectionJobScript = {
+        param($scriptPath, $collectionName, $sourceFolder, $fileTrackerApiUrl, $processInterval, $fileFilter, $includeSubdirectories)
+        & $scriptPath -CollectionName $collectionName -SourceFolder $sourceFolder -FileTrackerApiUrl $fileTrackerApiUrl -ProcessInterval $processInterval -FileFilter $fileFilter -IncludeSubdirectories:$includeSubdirectories
+    }
+    
+    $fileTrackerApiUrl = "http://localhost:$fileTrackerPort/api"
+    $watchCollectionJob = Start-Job -ScriptBlock $watchCollectionJobScript -ArgumentList $watchCollectionScript, $collectionName, $DirectoryPath, $fileTrackerApiUrl, $ProcessInterval, $FileFilter, $IncludeSubdirectories
+    
+    Write-Log "Collection watcher started successfully (Job ID: $($watchCollectionJob.Id))" -Level "INFO"
 }
 catch {
-    Write-Log "Error setting up periodic dirty files processor: $_" -Level "ERROR"
-    # Try to stop the file tracker watcher if it was started
-    if ($processingJob -and -not $processingJob.HasExited) {
-        Stop-Process -Id $processingJob.Id -Force
+    Write-Log "Error starting FileTracker subsystem: $_" -Level "ERROR"
+    # Try to stop already running jobs
+    if ($vectorsAPIJob) { Stop-Job -Id $vectorsAPIJob.Id -ErrorAction SilentlyContinue; Remove-Job -Id $vectorsAPIJob.Id -Force -ErrorAction SilentlyContinue }
+    exit 1
+}
+
+# Start the Processor subsystem to handle file processing
+Write-Log "Starting Processor subsystem..." -Level "INFO"
+try {
+    # Start synchronization job to process files
+    $synchronizeScript = Join-Path -Path $scriptDirectory -ChildPath "Processor\Synchronize-Collection.ps1"
+    
+    # Verify script exists
+    if (-not (Test-Path -Path $synchronizeScript)) {
+        Write-Log "Synchronize-Collection.ps1 script not found at: $synchronizeScript" -Level "ERROR"
+        exit 1
     }
+    
+    # Create synchronize job
+    $synchronizeJobScript = {
+        param($scriptPath, $collectionName, $fileTrackerApiUrl, $vectorsApiUrl, $chunkSize, $chunkOverlap, $continuous)
+        & $scriptPath -CollectionName $collectionName -FileTrackerApiUrl $fileTrackerApiUrl -VectorsApiUrl $vectorsApiUrl -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -Continuous:$continuous
+    }
+    
+    $vectorsApiUrl = "http://localhost:$vectorsAPIPort"
+    $synchronizeJob = Start-Job -ScriptBlock $synchronizeJobScript -ArgumentList $synchronizeScript, $collectionName, $fileTrackerApiUrl, $vectorsApiUrl, $ChunkSize, $ChunkOverlap, $true
+    
+    Write-Log "Collection synchronization started successfully (Job ID: $($synchronizeJob.Id))" -Level "INFO"
+}
+catch {
+    Write-Log "Error starting Processor subsystem: $_" -Level "ERROR"
+    # Try to stop already running jobs
+    if ($vectorsAPIJob) { Stop-Job -Id $vectorsAPIJob.Id -ErrorAction SilentlyContinue; Remove-Job -Id $vectorsAPIJob.Id -Force -ErrorAction SilentlyContinue }
+    if ($fileTrackerJob) { Stop-Job -Id $fileTrackerJob.Id -ErrorAction SilentlyContinue; Remove-Job -Id $fileTrackerJob.Id -Force -ErrorAction SilentlyContinue }
+    if ($watchCollectionJob) { Stop-Job -Id $watchCollectionJob.Id -ErrorAction SilentlyContinue; Remove-Job -Id $watchCollectionJob.Id -Force -ErrorAction SilentlyContinue }
     exit 1
 }
 
 # Start the API proxy server as a background job
-Write-Log "Starting API proxy server as a background job for RAG-enhanced chat capabilities..." -Level "INFO"
+Write-Log "Starting API proxy server for RAG-enhanced chat capabilities..." -Level "INFO"
 try {
-    & ".\Proxy\Start-RAGProxy.ps1" -ContextOnlyMode:$ContextOnlyMode -ListenAddress "localhost" -Port $ApiProxyPort -RelevanceThreshold $RelevanceThreshold -DirectoryPath $DirectoryPath -OllamaBaseUrl $OllamaBaseUrl -EmbeddingModel $EmbeddingModel -MaxContextDocs $MaxContextDocs
-    #$apiProxyJob = Start-Job -ScriptBlock $jobScript
-    Write-Log "API proxy server job started successfully (Job ID: $($apiProxyJob.Id))" -Level "INFO"
+    $proxyScript = Join-Path -Path $scriptDirectory -ChildPath "Proxy\Start-Proxy.ps1"
+    
+    # Verify script exists
+    if (-not (Test-Path -Path $proxyScript)) {
+        Write-Log "Start-Proxy.ps1 script not found at: $proxyScript" -Level "ERROR"
+        exit 1
+    }
+    
+    # Create proxy job
+    $proxyJobScript = {
+        param($scriptPath, $listenAddress, $port, $directoryPath, $ollamaUrl, $vectorsApiUrl, $embeddingModel, $relevanceThreshold, $maxContextDocs, $contextOnlyMode)
+        & $scriptPath -ListenAddress $listenAddress -Port $port -DirectoryPath $directoryPath -OllamaBaseUrl $ollamaUrl -VectorsApiUrl $vectorsApiUrl -EmbeddingModel $embeddingModel -RelevanceThreshold $relevanceThreshold -MaxContextDocs $maxContextDocs -ContextOnlyMode:$contextOnlyMode
+    }
+    
+    $apiProxyJob = Start-Job -ScriptBlock $proxyJobScript -ArgumentList $proxyScript, "localhost", $ApiProxyPort, $DirectoryPath, $OllamaUrl, $vectorsApiUrl, $EmbeddingModel, $RelevanceThreshold, $MaxContextDocs, $ContextOnlyMode
+    
+    Write-Log "API proxy server started successfully (Job ID: $($apiProxyJob.Id))" -Level "INFO"
     Write-Log "API will be available at: http://localhost:$ApiProxyPort/" -Level "INFO"
 }
 catch {
     Write-Log "Error setting up API proxy server job: $_" -Level "ERROR"
+    # Try to stop already running jobs
+    if ($vectorsAPIJob) { Stop-Job -Id $vectorsAPIJob.Id -ErrorAction SilentlyContinue; Remove-Job -Id $vectorsAPIJob.Id -Force -ErrorAction SilentlyContinue }
+    if ($fileTrackerJob) { Stop-Job -Id $fileTrackerJob.Id -ErrorAction SilentlyContinue; Remove-Job -Id $fileTrackerJob.Id -Force -ErrorAction SilentlyContinue }
+    if ($watchCollectionJob) { Stop-Job -Id $watchCollectionJob.Id -ErrorAction SilentlyContinue; Remove-Job -Id $watchCollectionJob.Id -Force -ErrorAction SilentlyContinue }
+    if ($synchronizeJob) { Stop-Job -Id $synchronizeJob.Id -ErrorAction SilentlyContinue; Remove-Job -Id $synchronizeJob.Id -Force -ErrorAction SilentlyContinue }
 }
 
 # Display summary and useful information
@@ -245,16 +333,20 @@ Write-Log "- Processing interval: Every $ProcessInterval seconds" -Level "INFO"
 if ($ContextOnlyMode) {
     Write-Log "- Context-only Mode: Active - LLM will use ONLY information from context" -Level "INFO"
 }
-Write-Log "- File tracker watcher" -Level "INFO"
-Write-Log "- Processing" -Level "INFO"
+Write-Log "- Vectors API job ID: $($vectorsAPIJob.Id)" -Level "INFO" 
+Write-Log "- FileTracker job ID: $($fileTrackerJob.Id)" -Level "INFO"
+Write-Log "- Collection watcher job ID: $($watchCollectionJob.Id)" -Level "INFO"
+Write-Log "- Collection synchronization job ID: $($synchronizeJob.Id)" -Level "INFO"
 Write-Log "- API proxy server job ID: $($apiProxyJob.Id)" -Level "INFO"
 Write-Log "- API endpoint: http://localhost:$ApiProxyPort/" -Level "INFO"
 
 Write-Log "`nThe system is now running in the background. To stop it:" -Level "INFO"
-Write-Log "1. Stop the file tracker watcher: Stop-Process -Id $($fileTrackerWatcherProcess.Id)" -Level "INFO"
-Write-Log "2. Stop the processing job: Stop-Job -Id $($processingJob.Id); Remove-Job -Id $($processingJob.Id)" -Level "INFO"
-Write-Log "3. Stop the API proxy server job: Stop-Job -Id $($apiProxyJob.Id); Remove-Job -Id $($apiProxyJob.Id)" -Level "INFO"
-Write-Log "`nTo check the status of the processing job: Receive-Job -Id $($processingJob.Id)" -Level "INFO"
+Write-Log "1. Stop the Vectors API job: Stop-Job -Id $($vectorsAPIJob.Id); Remove-Job -Id $($vectorsAPIJob.Id)" -Level "INFO"
+Write-Log "2. Stop the FileTracker job: Stop-Job -Id $($fileTrackerJob.Id); Remove-Job -Id $($fileTrackerJob.Id)" -Level "INFO"
+Write-Log "3. Stop the collection watcher job: Stop-Job -Id $($watchCollectionJob.Id); Remove-Job -Id $($watchCollectionJob.Id)" -Level "INFO"
+Write-Log "4. Stop the collection synchronization job: Stop-Job -Id $($synchronizeJob.Id); Remove-Job -Id $($synchronizeJob.Id)" -Level "INFO"
+Write-Log "5. Stop the API proxy server job: Stop-Job -Id $($apiProxyJob.Id); Remove-Job -Id $($apiProxyJob.Id)" -Level "INFO"
+
 Write-Log "`nTo interact with the RAG system:" -Level "INFO"
 Write-Log "- Use http://localhost:$ApiProxyPort/api/chat for RAG-enhanced chat" -Level "INFO"
 Write-Log "- Use http://localhost:$ApiProxyPort/api/search for document search" -Level "INFO"
@@ -276,43 +368,45 @@ finally {
     # Clean up processes and jobs
     Write-Log "Cleaning up resources..." -Level "INFO"
     
-    # Stop the file tracker watcher
-    if ($fileTrackerWatcherProcess -and -not $fileTrackerWatcherProcess.HasExited) {
-        Write-Log "Stopping file tracker watcher process (PID: $($fileTrackerWatcherProcess.Id))..." -Level "INFO"
-        Stop-Process -Id $fileTrackerWatcherProcess.Id -Force
-        Write-Log "File tracker watcher stopped." -Level "INFO"
+    # Stop the Vectors API job
+    if ($vectorsAPIJob) {
+        Write-Log "Stopping Vectors API job (ID: $($vectorsAPIJob.Id))..." -Level "INFO"
+        Stop-Job -Id $vectorsAPIJob.Id -ErrorAction SilentlyContinue
+        Remove-Job -Id $vectorsAPIJob.Id -Force -ErrorAction SilentlyContinue
+        Write-Log "Vectors API job stopped and removed." -Level "INFO"
+    }
+    
+    # Stop the FileTracker job
+    if ($fileTrackerJob) {
+        Write-Log "Stopping FileTracker job (ID: $($fileTrackerJob.Id))..." -Level "INFO"
+        Stop-Job -Id $fileTrackerJob.Id -ErrorAction SilentlyContinue
+        Remove-Job -Id $fileTrackerJob.Id -Force -ErrorAction SilentlyContinue
+        Write-Log "FileTracker job stopped and removed." -Level "INFO"
+    }
+    
+    # Stop the collection watcher job
+    if ($watchCollectionJob) {
+        Write-Log "Stopping collection watcher job (ID: $($watchCollectionJob.Id))..." -Level "INFO"
+        Stop-Job -Id $watchCollectionJob.Id -ErrorAction SilentlyContinue
+        Remove-Job -Id $watchCollectionJob.Id -Force -ErrorAction SilentlyContinue
+        Write-Log "Collection watcher job stopped and removed." -Level "INFO"
+    }
+    
+    # Stop the collection synchronization job
+    if ($synchronizeJob) {
+        Write-Log "Stopping collection synchronization job (ID: $($synchronizeJob.Id))..." -Level "INFO"
+        Stop-Job -Id $synchronizeJob.Id -ErrorAction SilentlyContinue
+        Remove-Job -Id $synchronizeJob.Id -Force -ErrorAction SilentlyContinue
+        Write-Log "Collection synchronization job stopped and removed." -Level "INFO"
     }
     
     # Stop and remove the API proxy server job
-    Write-Log "Stopping API proxy server job (ID: $($apiProxyJob.Id))..." -Level "INFO"
-    Stop-Job -Id $apiProxyJob.Id -ErrorAction SilentlyContinue
-    
-    # Display the final API proxy job output
-    Write-Log "Final API proxy job output:" -Level "INFO"
-    $finalApiJobOutput = Receive-Job -Id $apiProxyJob.Id -ErrorAction SilentlyContinue
-    if ($finalApiJobOutput) {
-        foreach ($line in $finalApiJobOutput) {
-            Write-Host "    $line"
-        }
+    if ($apiProxyJob) {
+        Write-Log "Stopping API proxy server job (ID: $($apiProxyJob.Id))..." -Level "INFO"
+        Stop-Job -Id $apiProxyJob.Id -ErrorAction SilentlyContinue
+        Remove-Job -Id $apiProxyJob.Id -Force -ErrorAction SilentlyContinue
+        Write-Log "API proxy server job stopped and removed." -Level "INFO"
     }
     
-    Remove-Job -Id $apiProxyJob.Id -Force -ErrorAction SilentlyContinue
-    Write-Log "API proxy server job stopped and removed." -Level "INFO"
-    
-    # Stop and remove the processing job
-    Write-Log "Stopping processing job (ID: $($processingJob.Id))..." -Level "INFO"
-    Stop-Job -Id $processingJob.Id -ErrorAction SilentlyContinue
-    
-    # Display the final job output
-    Write-Log "Final job output:" -Level "INFO"
-    $finalJobOutput = Receive-Job -Id $processingJob.Id -ErrorAction SilentlyContinue
-    if ($finalJobOutput) {
-        foreach ($line in $finalJobOutput) {
-            Write-Host "    $line"
-        }
-    }
-    
-    Remove-Job -Id $processingJob.Id -Force -ErrorAction SilentlyContinue
-    Write-Log "Processing job stopped and removed." -Level "INFO"
     Write-Log "RAG processing has been stopped." -Level "INFO"
 }

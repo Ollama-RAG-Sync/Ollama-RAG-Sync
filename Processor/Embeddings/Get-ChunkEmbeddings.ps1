@@ -1,4 +1,9 @@
 # Get-ChunkEmbeddings.ps1
+# DEPRECATED: This script is maintained for backward compatibility only.
+# The functionality has been moved to the Vectors subsystem.
+# Please use Vectors/Functions/Add-DocumentToVectors.ps1 instead, which handles
+# chunking and embedding generation via the Vectors-Embeddings.psm1 module.
+#
 # Creates multiple embedding vectors for chunks of a specified text file
 # Uses Ollama API for generating embeddings
 

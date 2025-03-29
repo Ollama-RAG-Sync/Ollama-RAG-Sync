@@ -1,6 +1,6 @@
 # Start-RAGProxy.ps1
 # REST API proxy that provides /api/chat endpoint
-# Uses ChromaDB for vector search to find relevant context
+# Uses Vectors subsystem for vector search to find relevant context
 # Forwards enhanced prompts to Ollama REST API
 
 #Requires -Version 7.0
@@ -18,6 +18,9 @@ param (
     
     [Parameter(Mandatory=$false)]
     [string]$OllamaBaseUrl = "http://localhost:11434",
+    
+    [Parameter(Mandatory=$false)]
+    [string]$VectorsApiUrl = "http://localhost:8082",
     
     [Parameter(Mandatory=$false)]
     [string]$EmbeddingModel = "mxbai-embed-large:latest",
@@ -45,7 +48,6 @@ param (
 )
 
 # Set up logging
-$pythonHelperPath = Join-Path -Path $PSScriptRoot -ChildPath "ragProxy.py"
 $aiFolder = Join-Path -Path $DirectoryPath -ChildPath ".ai"
 $vectorDbPath = Join-Path -Path $aiFolder -ChildPath "Vectors"
 $LogPath = Join-Path -Path $aiFolder -ChildPath "temp\RAGProxy.log"
@@ -103,25 +105,6 @@ function Write-ApiLog {
     Add-Content -Path $LogPath -Value $logMessage
 }
 
-# Check if Python is installed
-try {
-    $pythonVersion = pwsh.exe --version
-    Write-ApiLog -Message "Found Python: $pythonVersion"
-}
-catch {
-    Write-ApiLog -Message "Python not found. Please install Python 3.8+ to use this script. $_" -Level "ERROR"
-    exit 1
-}
-
-# Check if vector database path exists
-if (-not (Test-Path -Path $vectorDbPath)) {
-    Write-ApiLog -Message "Vector database path does not exist: $vectorDbPath" -Level "WARNING"
-    Write-ApiLog -Message "Creating directory: $vectorDbPath" -Level "INFO"
-    New-Item -Path $vectorDbPath -ItemType Directory -Force | Out-Null
-    
-    Write-ApiLog -Message "WARNING: Vector database is empty. You should run CreateChromaEmbeddings.ps1 to populate it." -Level "WARNING"
-}
-
 # Check if Ollama is running
 Write-ApiLog -Message "Checking if Ollama is running at $OllamaBaseUrl..." -Level "INFO"
 try {
@@ -149,7 +132,20 @@ catch {
     exit 1
 }
 
-# Function to query ChromaDB for relevant documents
+# Check if Vectors API is running
+Write-ApiLog -Message "Checking if Vectors API is running at $VectorsApiUrl..." -Level "INFO"
+try {
+    $vectorsStatus = Invoke-RestMethod -Uri "$VectorsApiUrl/status" -Method Get -ErrorAction Stop
+    Write-ApiLog -Message "Vectors API is running." -Level "INFO"
+}
+catch {
+    Write-ApiLog -Message "Vectors API is not running or not accessible at $VectorsApiUrl" -Level "ERROR"
+    Write-ApiLog -Message "Please ensure Vectors API is running before proceeding." -Level "ERROR"
+    Write-ApiLog -Message "You can start it with: .\Vectors\Start-VectorsAPI.ps1" -Level "INFO"
+    exit 1
+}
+
+# Function to query Vectors API for relevant documents
 function Get-RelevantDocuments {
     param (
         [Parameter(Mandatory=$true)]
@@ -172,27 +168,88 @@ function Get-RelevantDocuments {
     )
     
     try {
-        $pythonCmd = "python.exe ""$pythonHelperPath"" query ""$Query"" ""$vectorDbPath"" ""$EmbeddingModel"" ""$OllamaBaseUrl"" $MaxResults $Threshold ""$Mode"" $ChkWeight $DocWeight"
-        $resultJson = Invoke-Expression $pythonCmd
-        $result = $resultJson | ConvertFrom-Json
+        Write-ApiLog -Message "Querying Vectors API for: $Query" -Level "INFO"
         
-        if ($result.PSObject.Properties.Name -contains "error") {
-            Write-ApiLog -Message "Error querying ChromaDB: $($result.error)" -Level "ERROR"
-            return @{
-                success = $false
-                error = $result.error
-                results = @()
+        # Prepare the request body
+        $body = @{
+            query = $Query
+            max_results = $MaxResults
+            threshold = $Threshold
+        }
+        
+        $results = @()
+        $combinedResults = @()
+        
+        # Handle different query modes
+        if ($Mode -eq "chunks" -or $Mode -eq "both") {
+            # Query for chunks
+            try {
+                $endpoint = "$VectorsApiUrl/api/search/chunks"
+                $chunkResponse = Invoke-RestMethod -Uri $endpoint -Method Post -Body ($body | ConvertTo-Json) -ContentType "application/json" -ErrorAction Stop
+                
+                if ($chunkResponse.success -and $chunkResponse.results) {
+                    Write-ApiLog -Message "Found $($chunkResponse.count) matching chunks." -Level "INFO"
+                    
+                    # Apply weight to chunk results if in "both" mode
+                    if ($Mode -eq "both") {
+                        foreach ($result in $chunkResponse.results) {
+                            $result.similarity = $result.similarity * $ChkWeight
+                            $result.source_type = "chunk"
+                            $combinedResults += $result
+                        }
+                    } else {
+                        $results = $chunkResponse.results
+                    }
+                }
+            }
+            catch {
+                Write-ApiLog -Message "Error querying chunks: $_" -Level "ERROR"
             }
         }
         
+        if ($Mode -eq "documents" -or $Mode -eq "both") {
+            # Query for documents
+            try {
+                $endpoint = "$VectorsApiUrl/api/search/documents"
+                $docResponse = Invoke-RestMethod -Uri $endpoint -Method Post -Body ($body | ConvertTo-Json) -ContentType "application/json" -ErrorAction Stop
+                
+                if ($docResponse.success -and $docResponse.results) {
+                    Write-ApiLog -Message "Found $($docResponse.count) matching documents." -Level "INFO"
+                    
+                    # Apply weight to document results if in "both" mode
+                    if ($Mode -eq "both") {
+                        foreach ($result in $docResponse.results) {
+                            $result.similarity = $result.similarity * $DocWeight
+                            $result.source_type = "document"
+                            $combinedResults += $result
+                        }
+                    } else {
+                        $results = $docResponse.results
+                    }
+                }
+            }
+            catch {
+                Write-ApiLog -Message "Error querying documents: $_" -Level "ERROR"
+            }
+        }
+        
+        # If in "both" mode, combine and sort results
+        if ($Mode -eq "both") {
+            # Sort by similarity (descending)
+            $results = $combinedResults | Sort-Object -Property similarity -Descending | Select-Object -First $MaxResults
+        }
+        
+        # Filter by threshold
+        $filteredResults = $results | Where-Object { $_.similarity -ge $Threshold }
+        
         return @{
             success = $true
-            results = $result.results
-            count = $result.count
+            results = $filteredResults
+            count = $filteredResults.Count
         }
     }
     catch {
-        Write-ApiLog -Message "Exception querying ChromaDB: $_" -Level "ERROR"
+        Write-ApiLog -Message "Exception querying Vectors API: $_" -Level "ERROR"
         return @{
             success = $false
             error = $_.ToString()
@@ -213,10 +270,14 @@ function Format-RelevantContextForOllama {
     foreach ($doc in $Documents) {
         $source = $doc.metadata.source
         $fileName = Split-Path -Path $source -Leaf
-        $lineRange = $doc.metadata.line_range
+        $lineRange = if ($doc.metadata.line_range) { $doc.metadata.line_range } else { "N/A" }
         
         $contextText += "---`n"
-        $contextText += "Source: $fileName (lines $lineRange)`n"
+        $contextText += "Source: $fileName"
+        if ($lineRange -ne "N/A") {
+            $contextText += " (lines $lineRange)"
+        }
+        $contextText += "`n"
         $contextText += "Content:`n$($doc.document)`n`n"
     }
     
@@ -231,23 +292,22 @@ function Get-OllamaModels {
     )
     
     try {
-        $pythonCmd = "python.exe ""$pythonHelperPath"" models ""$OllamaBaseUrl"" ""$IncludeDetails"""
-        $resultJson = Invoke-Expression $pythonCmd
-        $result = $resultJson | ConvertFrom-Json
+        $endpoint = "$OllamaBaseUrl/api/tags"
+        $response = Invoke-RestMethod -Uri $endpoint -Method Get -ErrorAction Stop
         
-        if ($result.PSObject.Properties.Name -contains "error") {
-            Write-ApiLog -Message "Error getting models from Ollama: $($result.error)" -Level "ERROR"
-            return @{
-                success = $false
-                error = $result.error
-                models = @()
+        $models = @()
+        foreach ($model in $response.models) {
+            if ($IncludeDetails) {
+                $models += $model
+            } else {
+                $models += $model.name
             }
         }
         
         return @{
             success = $true
-            models = $result.models
-            count = $result.count
+            models = $models
+            count = $models.Count
         }
     }
     catch {
@@ -260,28 +320,19 @@ function Get-OllamaModels {
     }
 }
 
-# Function to get ChromaDB collection statistics
-function Get-ChromaDbStats {
+# Function to get vector database statistics
+function Get-VectorDbStats {
     try {
-        $pythonCmd = "python.exe ""$pythonHelperPath"" stats ""$vectorDbPath"""
-        $resultJson = Invoke-Expression $pythonCmd
-        $result = $resultJson | ConvertFrom-Json
-        
-        if ($result.PSObject.Properties.Name -contains "error") {
-            Write-ApiLog -Message "Error getting ChromaDB stats: $($result.error)" -Level "ERROR"
-            return @{
-                success = $false
-                error = $result.error
-            }
-        }
+        $endpoint = "$VectorsApiUrl/status"
+        $response = Invoke-RestMethod -Uri $endpoint -Method Get -ErrorAction Stop
         
         return @{
             success = $true
-            stats = $result
+            stats = $response
         }
     }
     catch {
-        Write-ApiLog -Message "Exception getting ChromaDB stats: $_" -Level "ERROR"
+        Write-ApiLog -Message "Exception getting vector database stats: $_" -Level "ERROR"
         return @{
             success = $false
             error = $_.ToString()
@@ -289,7 +340,7 @@ function Get-ChromaDbStats {
     }
 }
 
-# Function to send enhanced prompt to Ollama
+# Function to send chat to Ollama
 function Send-ChatToOllama {
     param (
         [Parameter(Mandatory=$true)]
@@ -309,51 +360,25 @@ function Send-ChatToOllama {
     )
     
     try {
-        # Create temporary directory if it doesn't exist
-        $tempDir = Join-Path -Path $aiFolder -ChildPath "temp"
-        if (-not (Test-Path -Path $tempDir)) {
-            New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
+        $endpoint = "$OllamaBaseUrl/api/chat"
+        
+        $body = @{
+            model = $Model
+            messages = $Messages
+            temperature = $Temperature
+            num_ctx = $NumCtx
         }
         
-        # Create temporary files for messages and context JSON
-        $messagesJsonFile = Join-Path -Path $tempDir -ChildPath "messages_$([Guid]::NewGuid().ToString()).json"
-        $contextJsonFile = if ($null -ne $Context) { Join-Path -Path $tempDir -ChildPath "context_$([Guid]::NewGuid().ToString()).json" } else { "null" }
-        
-        # Convert messages to JSON and save to temp file
-        $messagesJson = ConvertTo-Json $Messages -Depth 10
-        Set-Content -Path $messagesJsonFile -Value $messagesJson -Encoding UTF8
-        
-        # Convert context to JSON and save to temp file if it exists
         if ($null -ne $Context) {
-            $contextJson = $Context | ConvertTo-Json -Depth 10
-            Set-Content -Path $contextJsonFile -Value $contextJson -Encoding UTF8
-        }
-
-        # Include vector database parameters to allow document name retrieval
-        $pythonCmd = "python.exe ""$pythonHelperPath"" chat ""$messagesJsonFile"" ""$Model"" ""$contextJsonFile"" ""$OllamaBaseUrl"" ""$Temperature"" ""$NumCtx"" ""$vectorDbPath"" ""$EmbeddingModel"" ""$MaxContextDocs"" ""$RelevanceThreshold"""
-        $resultJson = Invoke-Expression $pythonCmd
-        $result = $resultJson | ConvertFrom-Json
-        
-        # Clean up the temp files
-        if (Test-Path -Path $messagesJsonFile) {
-            Remove-Item -Path $messagesJsonFile -Force
+            $body.context = $Context
         }
         
-        if ($null -ne $Context -and (Test-Path -Path $contextJsonFile)) {
-            Remove-Item -Path $contextJsonFile -Force
-        }
-        
-        if ($result.PSObject.Properties.Name -contains "error") {
-            Write-ApiLog -Message "Error sending chat to Ollama : $($result.error)" -Level "ERROR"
-            return @{
-                success = $false
-                error = $result.error
-            }
-        }
+        $jsonBody = $body | ConvertTo-Json -Depth 10
+        $response = Invoke-RestMethod -Uri $endpoint -Method Post -Body $jsonBody -ContentType "application/json" -ErrorAction Stop
         
         return @{
             success = $true
-            result = $result
+            result = $response
         }
     }
     catch {
@@ -386,6 +411,7 @@ try {
     
 Write-ApiLog -Message "API proxy started at $prefix" -Level "INFO"
 Write-ApiLog -Message "Vector database path: $vectorDbPath" -Level "INFO"
+Write-ApiLog -Message "Vectors API URL: $VectorsApiUrl" -Level "INFO"
 Write-ApiLog -Message "Ollama URL: $OllamaBaseUrl" -Level "INFO"
 Write-ApiLog -Message "Embedding model: $EmbeddingModel" -Level "INFO"
 Write-ApiLog -Message "Relevance threshold: $RelevanceThreshold" -Level "INFO"
@@ -452,7 +478,8 @@ Write-ApiLog -Message "Press Ctrl+C to stop the server" -Level "INFO"
                 "/api/chat - POST: Chat with context augmentation" + $(if ($ContextOnlyMode) { " (Context-only Mode active - returns only relevant context)" } else { "" })
                 "/api/search - POST: Search for relevant documents"
                 "/api/models - GET: Get list of available models"
-                "/api/stats - GET: Get statistics about ChromaDB collections"
+                "/api/stats - GET: Get statistics about vector database"
+                "/api/synchronize - POST: Synchronize dirty files from FileTracker to Vectors"
                 "/status - GET: Get API proxy status (includes Context-only Mode status)"
                             )
                         }
@@ -498,11 +525,11 @@ Write-ApiLog -Message "Press Ctrl+C to stop the server" -Level "INFO"
                     }
                 }
                 
-                # --- ChromaDB Stats endpoint ---
+                # --- Vector DB Stats endpoint ---
                 "/api/stats" {
                     if ($method -eq "GET") {
                         # Get collection statistics
-                        $statsResult = Get-ChromaDbStats
+                        $statsResult = Get-VectorDbStats
                         
                         if ($statsResult.success) {
                             $responseBody = @{
@@ -513,7 +540,7 @@ Write-ApiLog -Message "Press Ctrl+C to stop the server" -Level "INFO"
                         else {
                             $statusCode = 500
                             $responseBody = @{
-                                error = "ChromaDB stats error"
+                                error = "Vector database stats error"
                                 message = $statsResult.error
                             }
                         }
@@ -533,6 +560,7 @@ Write-ApiLog -Message "Press Ctrl+C to stop the server" -Level "INFO"
                         $responseBody = @{
                             status = "ok"
                             vectorDbPath = $vectorDbPath
+                            vectorsApiUrl = $VectorsApiUrl
                             ollamaUrl = $OllamaBaseUrl
                             embeddingModel = $EmbeddingModel
                             relevanceThreshold = $RelevanceThreshold
@@ -584,6 +612,96 @@ Write-ApiLog -Message "Press Ctrl+C to stop the server" -Level "INFO"
                                 $responseBody = @{
                                     error = "Search error"
                                     message = $searchResult.error
+                                }
+                            }
+                        }
+                    }
+                    else {
+                        $statusCode = 405
+                        $responseBody = @{
+                            error = "Method not allowed"
+                            message = "Use POST for this endpoint"
+                        }
+                    }
+                }
+                
+                # --- Synchronize endpoint ---
+                "/api/synchronize" {
+                    if ($method -eq "POST") {
+                        # Validate required parameters
+                        if ($null -eq $requestBody -or [string]::IsNullOrEmpty($requestBody.collection_name)) {
+                            $statusCode = 400
+                            $responseBody = @{
+                                error = "Bad request"
+                                message = "Required parameter missing: collection_name"
+                            }
+                        }
+                        else {
+                            try {
+                                # Extract parameters
+                                $collectionName = $requestBody.collection_name
+                                $fileTrackerApiUrl = if ($null -ne $requestBody.filetracker_api_url) { $requestBody.filetracker_api_url } else { "http://localhost:8080" }
+                                $vectorsApiUrl = if ($null -ne $requestBody.vectors_api_url) { $requestBody.vectors_api_url } else { "http://localhost:8082" }
+                                $chunkSize = if ($null -ne $requestBody.chunk_size) { $requestBody.chunk_size } else { 1000 }
+                                $chunkOverlap = if ($null -ne $requestBody.chunk_overlap) { $requestBody.chunk_overlap } else { 200 }
+                                $continuous = if ($null -ne $requestBody.continuous) { $requestBody.continuous } else { $false }
+                                
+                                # Get the processor path
+                                $processorPath = Join-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -ChildPath "Processor"
+                                $synchronizeScript = Join-Path -Path $processorPath -ChildPath "Synchronize-Collection.ps1"
+                                
+                                Write-ApiLog -Message "Calling Synchronize-Collection script for collection: $collectionName" -Level "INFO"
+                                
+                                # Build parameter set
+                                $params = @{
+                                    CollectionName = $collectionName
+                                    FileTrackerApiUrl = $fileTrackerApiUrl
+                                    VectorsApiUrl = $vectorsApiUrl
+                                    ChunkSize = $chunkSize
+                                    ChunkOverlap = $chunkOverlap
+                                }
+                                
+                                if ($continuous) {
+                                    $params.Continuous = $true
+                                }
+                                
+                                # Call the script asynchronously
+                                $job = Start-Job -ScriptBlock {
+                                    param($script, $parameters)
+                                    & $script @parameters
+                                } -ArgumentList $synchronizeScript, $params
+                                
+                                # Wait a moment to let the job start
+                                Start-Sleep -Seconds 1
+                                
+                                # Check if the job started successfully
+                                $jobState = $job.State
+                                
+                                if ($jobState -eq "Running") {
+                                    $responseBody = @{
+                                        success = $true
+                                        message = "Synchronization started for collection: $collectionName"
+                                        job_id = $job.Id
+                                        collection_name = $collectionName
+                                        continuous = $continuous
+                                    }
+                                }
+                                else {
+                                    $statusCode = 500
+                                    $responseBody = @{
+                                        success = $false
+                                        error = "Failed to start synchronization job"
+                                        job_state = $jobState
+                                        collection_name = $collectionName
+                                    }
+                                }
+                            }
+                            catch {
+                                $statusCode = 500
+                                $responseBody = @{
+                                    success = $false
+                                    error = "Error starting synchronization"
+                                    message = $_.ToString()
                                 }
                             }
                         }
@@ -750,28 +868,23 @@ Write-ApiLog -Message "Press Ctrl+C to stop the server" -Level "INFO"
                                 }
                             }
                             
-            if ($chatResult.success) {
-                # Add some metadata about the context to the response
-                $responseBody = $chatResult.result
-                $responseBody | Add-Member -MemberType NoteProperty -Name "context_count" -Value $contextDocuments.Count
-                
-                if ($contextDocuments.Count -gt 0) {
-                    # Add simplified context information
-                    $simplifiedContext = @()
-                    foreach ($doc in $contextDocuments) {
-                        $simplifiedContext += @{
-                            source = Split-Path -Path $doc.metadata.source -Leaf
-                            line_range = $doc.metadata.line_range
-                            similarity = $doc.similarity
-                        }
-                    }
-                    $responseBody | Add-Member -MemberType NoteProperty -Name "context_info" -Value $simplifiedContext
-                }
-                
-                # Add document names from the Python response if they exist
-                if ($responseBody.PSObject.Properties.Name -contains "document_names") {
-                    Write-ApiLog -Message "Found document names in response: $($responseBody.document_names -join ', ')" -Level "INFO"
-                }
+                            if ($chatResult.success) {
+                                # Add some metadata about the context to the response
+                                $responseBody = $chatResult.result
+                                $responseBody | Add-Member -MemberType NoteProperty -Name "context_count" -Value $contextDocuments.Count
+                                
+                                if ($contextDocuments.Count -gt 0) {
+                                    # Add simplified context information
+                                    $simplifiedContext = @()
+                                    foreach ($doc in $contextDocuments) {
+                                        $simplifiedContext += @{
+                                            source = Split-Path -Path $doc.metadata.source -Leaf
+                                            line_range = $doc.metadata.line_range
+                                            similarity = $doc.similarity
+                                        }
+                                    }
+                                    $responseBody | Add-Member -MemberType NoteProperty -Name "context_info" -Value $simplifiedContext
+                                }
                             }
                             else {
                                 $statusCode = 500

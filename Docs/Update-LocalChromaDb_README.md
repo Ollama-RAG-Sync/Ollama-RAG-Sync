@@ -72,7 +72,7 @@ The script includes a custom logging function (`Write-CustomLog`) that:
 ```powershell
 # Process dirty files using this custom processor
 .\Processing\Process-DirtyFiles.ps1 -DirectoryPath "D:\Documents" `
-    -ProcessorScript ".\Processing\Update-LocalChromaDb.ps1" 
+    -HandlerScript ".\Processing\Update-LocalChromaDb.ps1" 
 ```
 
 ### With Custom Parameters
@@ -80,8 +80,8 @@ The script includes a custom logging function (`Write-CustomLog`) that:
 ```powershell
 # Using custom parameters to modify processing behavior
 .\Processing\Process-DirtyFiles.ps1 -DirectoryPath "D:\Documents" `
-    -ProcessorScript ".\Processing\Update-LocalChromaDb.ps1" `
-    -ProcessorScriptParams @{
+    -HandlerScript ".\Processing\Update-LocalChromaDb.ps1" `
+    -HandlerScriptParams @{
         CustomParam1 = "EnhanceHeadings"
         CustomParam2 = "HighlightKeywords"
     }

@@ -182,26 +182,11 @@ catch {
     exit 1
 }
 
-# Initialize ChromaDB using Process-DirtyFiles.ps1 and Update-LocalChromaDb.ps1
-Write-Log "Initializing ChromaDB using Process-DirtyFiles.ps1 and Update-LocalChromaDb.ps1..." -Level "INFO"
+# Initialize Vectors subsystem for ChromaDB
+Write-Log "Initializing Vectors subsystem for ChromaDB..." -Level "INFO"
 try {
     # Check for required Python packages
     Ensure-Package "chromadb"
-
-    # Get script paths
-    $processDirtyFilesScript = Join-Path -Path $scriptDirectory -ChildPath "Processing\Process-DirtyFiles.ps1"
-    $updateLocalChromaDbScript = Join-Path -Path $scriptDirectory -ChildPath "Processing\Update-LocalChromaDb.ps1"
-
-    # Verify scripts exist
-    if (-not (Test-Path -Path $processDirtyFilesScript)) {
-        Write-Log "Process-DirtyFiles.ps1 script not found at: $processDirtyFilesScript" -Level "ERROR"
-        exit 1
-    }
-
-    if (-not (Test-Path -Path $updateLocalChromaDbScript)) {
-        Write-Log "Update-LocalChromaDb.ps1 script not found at: $updateLocalChromaDbScript" -Level "ERROR"
-        exit 1
-    }
 
     # Create temporary directory for processing if it doesn't exist
     $tempDir = Join-Path -Path $aiFolder -ChildPath "temp"
@@ -209,25 +194,52 @@ try {
         New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
     }
 
-    # Configure custom processor (Update-LocalChromaDb.ps1) parameters
-    $processorScriptParams = @{
-        "TempDir" = $tempDir
-        "CustomParam1" = "Initial Setup"
-        "CustomParam2" = "Configuration"
+    # Initialize Vectors subsystem
+    $vectorsScript = Join-Path -Path $scriptDirectory -ChildPath "Vectors\Start-Vectors.ps1"
+    
+    # Verify script exists
+    if (-not (Test-Path -Path $vectorsScript)) {
+        Write-Log "Start-Vectors.ps1 script not found at: $vectorsScript" -Level "ERROR"
+        exit 1
     }
-
-    # Process any existing files to initialize the database
+    
+    # Initialize Vector database
+    Write-Log "Initializing Vector database..." -Level "INFO"
+    & $vectorsScript -ChromaDbPath $vectorDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel -ChunkSize 1000 -ChunkOverlap 200 -Initialize
+    
+    # Process any existing files to initialize the database if requested
     if ($ProcessExistingFiles) {
-        Write-Log "Processing existing files to initialize ChromaDB..." -Level "INFO"
-        & $processDirtyFilesScript -DirectoryPath $DirectoryPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel -ProcessorScript $updateLocalChromaDbScript -ProcessorScriptParams $processorScriptParams
+        Write-Log "Processing existing files using Processor subsystem..." -Level "INFO"
+        
+        # Initialize processor for the collection
+        $initProcessorScript = Join-Path -Path $scriptDirectory -ChildPath "Processor\Init-ProcessorForCollection.ps1"
+        if (-not (Test-Path -Path $initProcessorScript)) {
+            Write-Log "Init-ProcessorForCollection.ps1 script not found at: $initProcessorScript" -Level "ERROR"
+            exit 1
+        }
+        
+        # Process the collection
+        $processCollectionScript = Join-Path -Path $scriptDirectory -ChildPath "Processor\Process-Collection.ps1"
+        if (-not (Test-Path -Path $processCollectionScript)) {
+            Write-Log "Process-Collection.ps1 script not found at: $processCollectionScript" -Level "ERROR"
+            exit 1
+        }
+        
+        # Initialize processor with default collection name
+        $collectionName = "Default-Collection"
+        
+        & $initProcessorScript -CollectionName $collectionName -SourceFolder $DirectoryPath -FileTrackerDbPath $fileTrackerDbPath
+        
+        # Process the collection with the Vectors handler
+        & $processCollectionScript -CollectionName $collectionName -EmbeddingModel $EmbeddingModel -OllamaUrl $OllamaUrl -FileTrackerDbPath $fileTrackerDbPath -TempDir $tempDir
     } else {
         Write-Log "Skipping processing of existing files as specified by parameter." -Level "INFO"
     }
     
-    Write-Log "ChromaDB initialized successfully using Process-DirtyFiles.ps1 and Update-LocalChromaDb.ps1" -Level "INFO"
+    Write-Log "Vectors subsystem initialized successfully" -Level "INFO"
 }
 catch {
-    Write-Log "Error initializing ChromaDB: $_" -Level "ERROR"
+    Write-Log "Error initializing Vectors subsystem: $_" -Level "ERROR"
     exit 1
 }
 

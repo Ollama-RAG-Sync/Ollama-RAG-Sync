@@ -86,15 +86,10 @@ switch ($fileExtension) {
             $content = "# Custom Processed File`n`n$content"
             $content | Set-Content -Path $outputPath -Encoding utf8
             
-            # Now send to ChromaDB using chunking
-            $chunkEmbeddingScript = Join-Path -Path $ScriptPath -ChildPath "..\Embeddings\Get-ChunkEmbeddings.ps1"
-            Write-CustomLog "Chunking and saving chunks to db ..."
-            & $chunkEmbeddingScript -FilePath $outputPath -SaveToChroma -ChromaDbPath $ChromaDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel
-            
-            # Also save whole document embedding
-            $fileEmbeddingScript = Join-Path -Path $ScriptPath -ChildPath "..\Embeddings\Get-FileEmbedding.ps1"
-            Write-CustomLog "Creating and saving whole document embedding ..."
-            & $fileEmbeddingScript -FilePath $outputPath -SaveToChroma -ChromaDbPath $ChromaDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel
+            # Use the Vectors subsystem to add the document to the vector database
+            $vectorsAddDocumentScript = Join-Path -Path $ScriptPath -ChildPath "..\..\Vectors\Functions\Add-DocumentToVectors.ps1"
+            Write-CustomLog "Adding document to vector database..."
+            & $vectorsAddDocumentScript -FilePath $outputPath -ChromaDbPath $ChromaDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel
         }
         else {
             Write-CustomLog "Failed to convert PDF file" -Level "ERROR"
@@ -111,14 +106,10 @@ switch ($fileExtension) {
         $tempFile = Join-Path -Path $TempDir -ChildPath "processed_$(Split-Path -Leaf $FilePath)"
         $processedContent | Set-Content -Path $tempFile -Encoding utf8
         
-        # Add to ChromaDB using chunking
-        $chunkEmbeddingScript = Join-Path -Path $ScriptPath -ChildPath "..\Embeddings\Get-ChunkEmbeddings.ps1"
-        & $chunkEmbeddingScript -FilePath $tempFile -SaveToChroma -ChromaDbPath $ChromaDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel
-        
-        # Also save whole document embedding
-        $fileEmbeddingScript = Join-Path -Path $ScriptPath -ChildPath "..\Embeddings\Get-FileEmbedding.ps1"
-        Write-CustomLog "Creating and saving whole document embedding ..."
-        & $fileEmbeddingScript -FilePath $tempFile -SaveToChroma -ChromaDbPath $ChromaDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel
+        # Use the Vectors subsystem to add the document to the vector database
+        $vectorsAddDocumentScript = Join-Path -Path $ScriptPath -ChildPath "..\..\Vectors\Functions\Add-DocumentToVectors.ps1"
+        Write-CustomLog "Adding document to vector database..."
+        & $vectorsAddDocumentScript -FilePath $tempFile -ChromaDbPath $ChromaDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel
     }
     ".md" {
         Write-CustomLog "Processing markdown file with custom logic"
@@ -133,14 +124,10 @@ switch ($fileExtension) {
         $tempFile = Join-Path -Path $TempDir -ChildPath "enhanced_$(Split-Path -Leaf $FilePath)"
         $enhancedContent | Set-Content -Path $tempFile -Encoding utf8
         
-        # Add to ChromaDB using chunking
-        $chunkEmbeddingScript = Join-Path -Path $ScriptPath -ChildPath "..\Embeddings\Get-ChunkEmbeddings.ps1"
-        & $chunkEmbeddingScript -FilePath $tempFile -SaveToChroma -ChromaDbPath $ChromaDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel
-        
-        # Also save whole document embedding
-        $fileEmbeddingScript = Join-Path -Path $ScriptPath -ChildPath "..\Embeddings\Get-FileEmbedding.ps1"
-        Write-CustomLog "Creating and saving whole document embedding ..."
-        & $fileEmbeddingScript -FilePath $tempFile -SaveToChroma -ChromaDbPath $ChromaDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel
+        # Use the Vectors subsystem to add the document to the vector database
+        $vectorsAddDocumentScript = Join-Path -Path $ScriptPath -ChildPath "..\..\Vectors\Functions\Add-DocumentToVectors.ps1"
+        Write-CustomLog "Adding document to vector database..."
+        & $vectorsAddDocumentScript -FilePath $tempFile -ChromaDbPath $ChromaDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel
     }
     default {
         Write-CustomLog "Unsupported file type: $fileExtension, using default processing" -Level "WARNING"
@@ -151,14 +138,10 @@ switch ($fileExtension) {
                 # Attempt to read as text
                 $null = Get-Content -Path $FilePath -Raw -ErrorAction Stop
                 
-                # If successful, add to ChromaDB using chunking
-                $chunkEmbeddingScript = Join-Path -Path $ScriptPath -ChildPath "..\Embeddings\Get-ChunkEmbeddings.ps1"
-                & $chunkEmbeddingScript -FilePath $FilePath -SaveToChroma -ChromaDbPath $ChromaDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel
-                
-                # Also save whole document embedding
-                $fileEmbeddingScript = Join-Path -Path $ScriptPath -ChildPath "..\Embeddings\Get-FileEmbedding.ps1"
-                Write-CustomLog "Creating and saving whole document embedding ..."
-                & $fileEmbeddingScript -FilePath $FilePath -SaveToChroma -ChromaDbPath $ChromaDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel
+                # Use the Vectors subsystem to add the document to the vector database
+                $vectorsAddDocumentScript = Join-Path -Path $ScriptPath -ChildPath "..\..\Vectors\Functions\Add-DocumentToVectors.ps1"
+                Write-CustomLog "Adding document to vector database..."
+                & $vectorsAddDocumentScript -FilePath $FilePath -ChromaDbPath $ChromaDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel
             }
             catch {
                 Write-CustomLog "File is not text-based or cannot be read: $_" -Level "ERROR"

@@ -33,7 +33,13 @@ param (
     [int]$ProcessInterval = 15,
     
     [Parameter(Mandatory = $false)]
-    [string[]]$OmitFolders = @(".ai")
+    [string[]]$OmitFolders = @(),
+    
+    [Parameter(Mandatory = $false)]
+    [int]$CollectionId,
+    
+    [Parameter(Mandatory = $false)]
+    [string]$InstallPath
 )
 
 # Ensure the directory exists
@@ -41,9 +47,6 @@ if (-not (Test-Path -Path $DirectoryToWatch)) {
     Write-Error "Directory $DirectoryToWatch does not exist."
     exit 1
 }
-
-$aiFolder = Join-Path -Path $DirectoryToWatch -ChildPath ".ai"
-$DatabasePath = Join-Path -Path $aiFolder -ChildPath "FileTracker.db"
 
 # Setup logging
 function Write-Log {
@@ -62,8 +65,13 @@ function Write-Log {
     }
 }
 
-# Import shared module
+# Import shared modules
 $scriptParentPath = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
+
+$fileTrackerDir = Join-Path -Path $InstallPath -ChildPath "FileTracker"
+$databasePath = Join-Path -Path $fileTrackerDir -ChildPath "Collection_$CollectionId.db"
+
+# Import shared module for file tracking functions
 $sharedModulePath = Join-Path -Path $scriptParentPath -ChildPath "FileTracker-Shared.psm1"
 Import-Module -Name $sharedModulePath -Force
 
@@ -87,7 +95,8 @@ catch {
 # Function to check if database exists and is initialized
 function Test-DatabaseInitialized {
     param (
-        [string]$DatabasePath
+        [string]$DatabasePath,
+        [switch]$IsCollectionMode
     )
     
     if (-not (Test-Path -Path $DatabasePath)) {
@@ -108,6 +117,15 @@ function Test-DatabaseInitialized {
         $command.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='files'"
         $result = $command.ExecuteScalar()
         
+        # In collection mode, also check for the collections table
+        if ($IsCollectionMode) {
+            $collectionCommand = $connection.CreateCommand()
+            $collectionCommand.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='collections'"
+            $collectionResult = $collectionCommand.ExecuteScalar()
+            
+            return ($result -eq "files" -and $collectionResult -eq "collections")
+        }
+        
         return $result -eq "files"
     }
     catch {
@@ -127,7 +145,8 @@ function Update-FileInDatabase {
     param (
         [string]$FilePath,
         [string]$ChangeType,
-        [string]$DatabasePath
+        [string]$DatabasePath,
+        [int]$CollectionId = $null
     )
     
     try {
@@ -141,50 +160,109 @@ function Update-FileInDatabase {
         
         $transaction = $connection.BeginTransaction()
         
-        # Check if the file exists in the database
-        $checkCommand = $connection.CreateCommand()
-        $checkCommand.CommandText = "SELECT COUNT(*) FROM files WHERE FilePath = @FilePath"
-        $checkCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
-        $fileExists = $checkCommand.ExecuteScalar() -gt 0
+        # Determine if we're in collection mode
+        $isCollectionMode = $null -ne $CollectionId
+        $currentTime = [DateTime]::Now.ToString("o")
         
-        if ($ChangeType -eq "Deleted") {
-            if ($fileExists) {
-                # Mark file as deleted and to process
-                $updateCommand = $connection.CreateCommand()
-                $updateCommand.CommandText = "UPDATE files SET Dirty = 1, Deleted = 1 WHERE FilePath = @FilePath"
-                $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
-                $updateCommand.ExecuteNonQuery()
-                Write-Log "File marked as to delete and to process: $FilePath"
+        if ($isCollectionMode) {
+            # Collection mode - check if the file exists in the collection
+            $checkCommand = $connection.CreateCommand()
+            $checkCommand.CommandText = "SELECT COUNT(*) FROM files WHERE FilePath = @FilePath AND collection_id = @CollectionId"
+            $checkCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
+            $checkCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $CollectionId)))
+            $fileExists = $checkCommand.ExecuteScalar() -gt 0
+            
+            if ($ChangeType -eq "Deleted") {
+                if ($fileExists) {
+                    # Mark file as deleted and dirty
+                    $updateCommand = $connection.CreateCommand()
+                    $updateCommand.CommandText = "UPDATE files SET Dirty = 1, Deleted = 1 WHERE FilePath = @FilePath AND collection_id = @CollectionId"
+                    $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
+                    $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $CollectionId)))
+                    $updateCommand.ExecuteNonQuery()
+                    Write-Log "File marked as to delete and to process in collection $CollectionId - $FilePath"
+                }
+                else {
+                    # File not in database, add it
+                    $insertCommand = $connection.CreateCommand()
+                    $insertCommand.CommandText = "INSERT INTO files (FilePath, LastModified, Dirty, Deleted, collection_id) VALUES (@FilePath, @LastModified, 1, 1, @CollectionId)"
+                    $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
+                    $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@LastModified", $currentTime)))
+                    $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $CollectionId)))
+                    $insertCommand.ExecuteNonQuery()
+                    Write-Log "Added deleted file to collection $CollectionId database (to delete and to process) - $FilePath"
+                }
             }
             else {
-                # File not in database, add it
-                $insertCommand = $connection.CreateCommand()
-                $insertCommand.CommandText = "INSERT INTO files (FilePath, LastModified, Dirty, Deleted) VALUES (@FilePath, @LastModified, 1, 1)"
-                $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
-                $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@LastModified", [DateTime]::Now.ToString("o"))))
-                $insertCommand.ExecuteNonQuery()
-                Write-Log "Added deleted file to database (to delete and to process): $FilePath"
+                # For Created, Modified, Renamed - mark as to process or add to database
+                if ($fileExists) {
+                    # Update last modified and mark to process
+                    $updateCommand = $connection.CreateCommand()
+                    $updateCommand.CommandText = "UPDATE files SET LastModified = @LastModified, Dirty = 1, Deleted = 0 WHERE FilePath = @FilePath AND collection_id = @CollectionId"
+                    $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
+                    $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@LastModified", $currentTime)))
+                    $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $CollectionId)))
+                    $updateCommand.ExecuteNonQuery()
+                    Write-Log "File marked as to process in collection $CollectionId - $FilePath"
+                }
+                else {
+                    # Add new file to database
+                    $insertCommand = $connection.CreateCommand()
+                    $insertCommand.CommandText = "INSERT INTO files (FilePath, LastModified, Dirty, Deleted, collection_id) VALUES (@FilePath, @LastModified, 1, 0, @CollectionId)"
+                    $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
+                    $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@LastModified", $currentTime)))
+                    $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $CollectionId)))
+                    $insertCommand.ExecuteNonQuery()
+                    Write-Log "Added new file to collection $CollectionId database (to process) - $FilePath"
+                }
             }
-        }
+        } 
         else {
-            # For Created, Modified, Renamed - just mark as to process or add to database
-            if ($fileExists) {
-                # Update last modified and mark to process
-                $updateCommand = $connection.CreateCommand()
-                $updateCommand.CommandText = "UPDATE files SET LastModified = @LastModified, Dirty = 1 WHERE FilePath = @FilePath"
-                $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
-                $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@LastModified", [DateTime]::Now.ToString("o"))))
-                $updateCommand.ExecuteNonQuery()
-                Write-Log "File marked as to process: $FilePath"
+            # Legacy mode (no collection) - check if the file exists in the database
+            $checkCommand = $connection.CreateCommand()
+            $checkCommand.CommandText = "SELECT COUNT(*) FROM files WHERE FilePath = @FilePath"
+            $checkCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
+            $fileExists = $checkCommand.ExecuteScalar() -gt 0
+            
+            if ($ChangeType -eq "Deleted") {
+                if ($fileExists) {
+                    # Mark file as deleted and to process
+                    $updateCommand = $connection.CreateCommand()
+                    $updateCommand.CommandText = "UPDATE files SET Dirty = 1, Deleted = 1 WHERE FilePath = @FilePath"
+                    $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
+                    $updateCommand.ExecuteNonQuery()
+                    Write-Log "File marked as to delete and to process - $FilePath"
+                }
+                else {
+                    # File not in database, add it
+                    $insertCommand = $connection.CreateCommand()
+                    $insertCommand.CommandText = "INSERT INTO files (FilePath, LastModified, Dirty, Deleted) VALUES (@FilePath, @LastModified, 1, 1)"
+                    $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
+                    $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@LastModified", $currentTime)))
+                    $insertCommand.ExecuteNonQuery()
+                    Write-Log "Added deleted file to database (to delete and to process) - $FilePath"
+                }
             }
             else {
-                # Add new file to database
-                $insertCommand = $connection.CreateCommand()
-                $insertCommand.CommandText = "INSERT INTO files (FilePath, LastModified, Dirty, Deleted) VALUES (@FilePath, @LastModified, 1, 0)"
-                $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
-                $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@LastModified", [DateTime]::Now.ToString("o"))))
-                $insertCommand.ExecuteNonQuery()
-                Write-Log "Added new file to database (to process): $FilePath"
+                # For Created, Modified, Renamed - just mark as to process or add to database
+                if ($fileExists) {
+                    # Update last modified and mark to process
+                    $updateCommand = $connection.CreateCommand()
+                    $updateCommand.CommandText = "UPDATE files SET LastModified = @LastModified, Dirty = 1, Deleted = 0 WHERE FilePath = @FilePath"
+                    $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
+                    $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@LastModified", $currentTime)))
+                    $updateCommand.ExecuteNonQuery()
+                    Write-Log "File marked as to process - $FilePath"
+                }
+                else {
+                    # Add new file to database
+                    $insertCommand = $connection.CreateCommand()
+                    $insertCommand.CommandText = "INSERT INTO files (FilePath, LastModified, Dirty, Deleted) VALUES (@FilePath, @LastModified, 1, 0)"
+                    $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
+                    $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@LastModified", $currentTime)))
+                    $insertCommand.ExecuteNonQuery()
+                    Write-Log "Added new file to database (to process) - $FilePath"
+                }
             }
         }
         
@@ -207,9 +285,44 @@ function Update-FileInDatabase {
 }
 
 # Check if database is initialized
-if (-not (Test-DatabaseInitialized -DatabasePath $DatabasePath)) {
-    Write-Log "Database not initialized. Please run Initialize-FileProcessingTracker.ps1 first." -Level "ERROR"
+$isCollectionMode = $null -ne $CollectionId
+
+# Conditional parameters based on collection mode
+$dbCheckParams = @{
+    DatabasePath = $DatabasePath
+}
+if ($isCollectionMode) {
+    $dbCheckParams['IsCollectionMode'] = $true
+}
+
+if (-not (Test-DatabaseInitialized @dbCheckParams)) {
+    if ($isCollectionMode) {
+        Write-Log "Collection database not initialized. Please run Initialize-CollectionDatabase.ps1 first." -Level "ERROR"
+    } else {
+        Write-Log "Database not initialized. Please run Initialize-FileProcessingTracker.ps1 first." -Level "ERROR"
+    }
     exit 1
+}
+
+# If in collection mode, validate the collection exists
+if ($isCollectionMode) {
+    try {
+        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+        $command = $connection.CreateCommand()
+        $command.CommandText = "SELECT COUNT(*) FROM collections WHERE id = @CollectionId"
+        $command.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $CollectionId)))
+        $collectionExists = $command.ExecuteScalar() -gt 0
+        $connection.Close()
+        
+        if (-not $collectionExists) {
+            Write-Log "Collection with ID $CollectionId not found in database $DatabasePath" -Level "ERROR"
+            exit 1
+        }
+    }
+    catch {
+        Write-Error "Error validating collection: $_"
+        exit 1
+    }
 }
 
 Write-Log "Starting directory watcher for $DirectoryToWatch"
@@ -268,6 +381,7 @@ $scriptBlock = {
         $omitFolders = $Event.MessageData.OmitFolders
         $baseDir = $Event.MessageData.BaseDirectory
         $testOmitFunc = $Event.MessageData.TestOmitFunction
+        $collectionId = $Event.MessageData.CollectionId
 
         $eventKey = "$changeType|$path"
         $isDuplicate = $false
@@ -288,15 +402,16 @@ $scriptBlock = {
         }
 
         if ($isDuplicate -eq $false) {
-            Write-Host "Processing event: $changeType for $path"
+            $collectionInfo = if ($collectionId) { " in collection $collectionId" } else { "" }
+            Write-Host "Processing event: $changeType for $path$collectionInfo"
             
             # Handle the event based on change type
-            $result = & $updateFileFunc -FilePath $path -ChangeType $changeType -DatabasePath $dbPath
+            $result = & $updateFileFunc -FilePath $path -ChangeType $changeType -DatabasePath $dbPath -CollectionId $collectionId
             if ($result) {
-                Write-Host "Successfully updated database for: $path ($changeType)"
+                Write-Host "Successfully updated database for: $path ($changeType)$collectionInfo"
             }
             else {
-                Write-Host "Failed to update database for: $path ($changeType)" -ForegroundColor Red
+                Write-Host "Failed to update database for: $path ($changeType)$collectionInfo" -ForegroundColor Red
             }
             $events[$eventKey] = Get-Date
         }
@@ -317,6 +432,7 @@ $data = @{
     OmitFolders = $OmitFolders
     BaseDirectory = $DirectoryToWatch
     TestOmitFunction = ${function:Test-PathInOmittedFolders}
+    CollectionId = $CollectionId
 }
 
 if ($WatchCreated) {
@@ -347,6 +463,12 @@ if ($WatchRenamed) {
 try {
     Write-Log "Watcher started successfully. Waiting for events..."
     Write-Log "Using database: $DatabasePath"
+
+    # Display collection info if in collection mode
+    if ($CollectionId) {
+        Write-Host "Monitoring for collection ID: $CollectionId" -ForegroundColor Cyan
+        Write-Log "Monitoring for collection ID: $CollectionId"
+    }
     
     # Create a summary of what's being watched
     $watchEvents = @()

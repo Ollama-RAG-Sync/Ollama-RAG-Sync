@@ -1,4 +1,9 @@
 # GetFileEmbedding.ps1
+# DEPRECATED: This script is maintained for backward compatibility only.
+# The functionality has been moved to the Vectors subsystem.
+# Please use Vectors/Functions/Add-DocumentToVectors.ps1 instead, which
+# handles document embedding generation via the Vectors-Embeddings.psm1 module.
+#
 # Creates a single embedding vector for a specified text file
 # Uses Ollama API for generating embeddings
 
