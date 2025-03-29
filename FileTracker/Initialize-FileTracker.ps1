@@ -1,27 +1,36 @@
 <#
 .SYNOPSIS
-    Initializes a SQLite database to track file modifications in a specified folder.
+    Initializes the FileTracker database and creates a collection for a specified folder.
 .DESCRIPTION
-    This script creates a SQLite database and populates it with information about files
-    in the specified folder (recursively). For each file, it stores the path, last modification date,
-    and sets the "Dirty" flag to false.
+    This script creates or updates the centralized FileTracker database and adds a collection
+    for the specified folder. It then populates the collection with information about files
+    in the folder (recursively), marking them for processing.
 .PARAMETER FolderPath
     The path to the folder to monitor for file changes.
+.PARAMETER CollectionName
+    The name to use for the collection. If not specified, it will use the folder name.
+.PARAMETER Description
+    Optional description for the collection.
 .PARAMETER DatabasePath
-    The path where the SQLite database will be created. If not specified, a "FileTracker.db" file
-    will be created in a ".ai" subfolder within the FolderPath.
+    The path where the SQLite database will be created. If not specified, it will use the default path
+    in the user's AppData folder.
 .PARAMETER OmitFolders
     An array of folder names to exclude from file tracking. By default, the ".ai" folder is excluded.
 .EXAMPLE
-    .\Initialize-FileTracker.ps1 -FolderPath "D:\MyDocuments" -DatabasePath "D:\MyDocuments\FileTracker.db"
+    .\Initialize-FileTracker.ps1 -FolderPath "D:\MyDocuments" -CollectionName "My Documents"
 .EXAMPLE
-    .\Initialize-FileTracker.ps1 -FolderPath "D:\MyDocuments"
-    # This will create the database at "D:\MyDocuments\.ai\FileTracker.db"
+    .\Initialize-FileTracker.ps1 -FolderPath "D:\MyDocuments" -OmitFolders @(".ai", ".git", "node_modules")
 #>
 
 param (
     [Parameter(Mandatory = $true)]
     [string]$FolderPath,
+    
+    [Parameter(Mandatory = $false)]
+    [string]$CollectionName,
+    
+    [Parameter(Mandatory = $false)]
+    [string]$Description,
     
     [Parameter(Mandatory = $false)]
     [string]$DatabasePath,
@@ -30,62 +39,65 @@ param (
     [string[]]$OmitFolders = @(".ai")
 )
 
-# If DatabasePath is not provided, set it to a file inside .ai subfolder in FolderPath
+# Import the shared database module
+$scriptParentPath = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
+$databaseSharedPath = Join-Path -Path $scriptParentPath -ChildPath "Database-Shared.psm1"
+Import-Module -Name $databaseSharedPath -Force
+
+# If DatabasePath is not provided, use the default path
 if (-not $DatabasePath) {
-    $aiFolder = Join-Path -Path $FolderPath -ChildPath ".ai"
-    
-    # Create .ai folder if it doesn't exist
-    if (-not (Test-Path -Path $aiFolder)) {
-        New-Item -Path $aiFolder -ItemType Directory | Out-Null
-        Write-Host "Created .ai folder at $aiFolder" -ForegroundColor Yellow
-    }
-    
-    $DatabasePath = Join-Path -Path $aiFolder -ChildPath "FileTracker.db"
-    Write-Host "DatabasePath set to $DatabasePath" -ForegroundColor Cyan
+    $DatabasePath = Get-DefaultDatabasePath
+    Write-Host "Using default database path: $DatabasePath" -ForegroundColor Cyan
 }
 
-$sqliteAssemblyPath = "$FolderPath\.ai\libs\Microsoft.Data.Sqlite.dll"
-$sqliteAssemblyPath2 = "$FolderPath\.ai\libs\SQLitePCLRaw.core.dll"
-$sqliteAssemblyPath3 = "$FolderPath\.ai\libs\SQLitePCLRaw.provider.e_sqlite3.dll"
+# If CollectionName is not provided, use the folder name
+if (-not $CollectionName) {
+    $CollectionName = Split-Path -Path $FolderPath -Leaf
+    Write-Host "Using folder name as collection name: $CollectionName" -ForegroundColor Cyan
+}
+
+# Check if SQLite assemblies exist
+$sqliteAssemblyPath = "$env:APPDATA\FileTracker\libs\Microsoft.Data.Sqlite.dll"
+$sqliteAssemblyPath2 = "$env:APPDATA\FileTracker\libs\SQLitePCLRaw.core.dll"
+$sqliteAssemblyPath3 = "$env:APPDATA\FileTracker\libs\SQLitePCLRaw.provider.e_sqlite3.dll"
 
 # Load SQLite assembly
-Add-Type -Path $sqliteAssemblyPath
-Add-Type -Path $sqliteAssemblyPath2
-Add-Type -Path $sqliteAssemblyPath3
-
-# Create/Open the database
 try {
-    # Create database directory if it doesn't exist
-    $databaseDir = Split-Path -Path $DatabasePath -Parent
-    if (-not (Test-Path -Path $databaseDir)) {
-        New-Item -Path $databaseDir -ItemType Directory | Out-Null
+    Add-Type -Path $sqliteAssemblyPath
+    Add-Type -Path $sqliteAssemblyPath2
+    Add-Type -Path $sqliteAssemblyPath3
+}
+catch {
+    Write-Error "Error loading SQLite assemblies: $_"
+    Write-Host "Please make sure you've run Install-FileTracker.ps1 first." -ForegroundColor Red
+    exit 1
+}
+
+# Initialize the centralized collection database if it doesn't exist
+try {
+    # Make sure collection database is initialized
+    $initDbScript = Join-Path -Path $scriptParentPath -ChildPath "Initialize-CollectionDatabase.ps1"
+    & $initDbScript -DatabasePath $DatabasePath
+    
+    # Get or create the collection
+    $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+    
+    # Check if collection exists
+    $checkCommand = $connection.CreateCommand()
+    $checkCommand.CommandText = "SELECT id FROM collections WHERE name = @Name"
+    $checkCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@Name", $CollectionName)))
+    
+    $collectionId = $checkCommand.ExecuteScalar()
+    
+    if (-not $collectionId) {
+        # Create new collection
+        $collection = New-Collection -Name $CollectionName -Description $Description -DatabasePath $DatabasePath
+        $collectionId = $collection.id
+        Write-Host "Created new collection '$CollectionName' with ID $collectionId" -ForegroundColor Green
     }
-
-
-    # Set SQLitePCLRaw provider
-    [SQLitePCL.raw]::SetProvider([SQLitePCL.SQLite3Provider_e_sqlite3]::new())
-    
-    # Create connection to SQLite database
-    $connectionString = "Data Source=$DatabasePath;"
-    $connection = New-Object Microsoft.Data.Sqlite.SqliteConnection($connectionString)
-    $connection.Open()
-    
-    # Create command object
-    $command = $connection.CreateCommand()
-    
-    # Create table if not exists
-    $command.CommandText = @"
-CREATE TABLE IF NOT EXISTS files (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    FilePath TEXT UNIQUE,
-    LastModified TEXT,
-    Dirty INTEGER,
-    Deleted INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_FilePath ON files(FilePath);
-DELETE FROM files; -- Clear existing data
-"@
-    $null = $command.ExecuteNonQuery()
+    else {
+        Write-Host "Using existing collection '$CollectionName' with ID $collectionId" -ForegroundColor Cyan
+    }
     
     # Initialize the counter for progress reporting
     $filesProcessed = 0
@@ -108,14 +120,18 @@ DELETE FROM files; -- Clear existing data
     }
     
     $totalFiles = $files.Count
-    Write-Host "Found $totalFiles files" 
-
+    Write-Host "Found $totalFiles files to process" -ForegroundColor Cyan
+    
+    # Begin transaction for better performance
+    $transaction = $connection.BeginTransaction()
+    
     # Prepare insert statement
-    $null = $insertCommand = $connection.CreateCommand()
-    $null = $insertCommand.CommandText = "INSERT OR IGNORE INTO files (FilePath, LastModified, Dirty, Deleted) VALUES (@FilePath, @LastModified, @Dirty, 0)"
-    $null = $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", [System.Data.DbType]::String)))
-    $null = $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@LastModified", [System.Data.DbType]::String)))
-    $null = $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@Dirty", [System.Data.DbType]::Int32)))
+    $insertCommand = $connection.CreateCommand()
+    $insertCommand.CommandText = "INSERT OR REPLACE INTO files (FilePath, LastModified, Dirty, Deleted, collection_id) VALUES (@FilePath, @LastModified, @Dirty, 0, @CollectionId)"
+    $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", [DBNull]::Value)))
+    $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@LastModified", [DBNull]::Value)))
+    $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@Dirty", 1))) # Mark all files as dirty initially
+    $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $collectionId)))
     
     # Process the filtered files
     $files | ForEach-Object {
@@ -123,30 +139,35 @@ DELETE FROM files; -- Clear existing data
         $lastModified = $_.LastWriteTime.ToString("o") # ISO 8601 format
         
         # Set parameters
-        $null = $insertCommand.Parameters["@FilePath"].Value = $filePath
-        $null = $insertCommand.Parameters["@LastModified"].Value = $lastModified
-        $null = $insertCommand.Parameters["@Dirty"].Value = 1 # true - mark new files as dirty
+        $insertCommand.Parameters["@FilePath"].Value = $filePath
+        $insertCommand.Parameters["@LastModified"].Value = $lastModified
         
         # Insert record
         $insertCommand.ExecuteNonQuery() | Out-Null
         
         # Update progress
         $filesProcessed++
-        Write-Progress -Activity "Initializing File Tracker Database" -Status "Processing files" -PercentComplete (($filesProcessed / $totalFiles) * 100)
+        Write-Progress -Activity "Initializing File Tracker" -Status "Processing files" -PercentComplete (($filesProcessed / $totalFiles) * 100)
     }
     
-    Write-Progress -Activity "Initializing File Tracker Database" -Completed
-    Write-Host "Database initialized with $filesProcessed files."
+    # Commit transaction
+    $transaction.Commit()
+    
+    Write-Progress -Activity "Initializing File Tracker" -Completed
+    Write-Host "Collection initialized with $filesProcessed files marked for processing." -ForegroundColor Green
 }
 catch {
-    Write-Error "Error initializing database: $_"
+    if ($transaction) {
+        $transaction.Rollback()
+    }
+    Write-Error "Error initializing file tracker: $_"
 }
 finally {
-    Write-Host "Finished initializing database"
-
     # Close the database connection
     if ($connection) {
         $connection.Close()
         $connection.Dispose()
     }
+    
+    Write-Host "Finished initializing file tracker for folder: $FolderPath" -ForegroundColor Green
 }

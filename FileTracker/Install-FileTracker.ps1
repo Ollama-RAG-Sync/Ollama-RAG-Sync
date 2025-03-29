@@ -22,7 +22,7 @@
 
 param (
     [Parameter(Mandatory = $true)]
-    [string]$FolderPath,
+    [string]$InstallPath,
     
     [Parameter(Mandatory = $false)]
     [switch]$Force
@@ -57,10 +57,9 @@ $packages = @(
 )
 
 # Setup paths
-$aiFolder = Join-Path -Path $FolderPath -ChildPath ".ai"
-$installFolder = Join-Path -Path $aiFolder -ChildPath "libs"
-$tempFolder = Join-Path -Path $env:TEMP -ChildPath "SQLite_Temp"
-$handleExe = Join-Path -Path $installFolder -ChildPath "handle.exe"
+$libs = Join-Path -Path $InstallPath -ChildPath "libs"
+$tempFolder = Join-Path -Path $InstallPath -ChildPath "temp"
+$handleExe = Join-Path -Path $InstallPath -ChildPath "handle.exe"
 
 function Allow-FileWrite {
     param (

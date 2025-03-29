@@ -1,12 +1,15 @@
-# ProcessDirtyFiles.ps1
-# Identifies dirty files and processes them - converting PDFs to markdown and adding text files to Chroma DB
+# Process-CollectionDirtyFiles.ps1
+# Identifies dirty files in a collection and processes them - converting PDFs to markdown and adding text files to Chroma DB
 # Also handles removed files by deleting them from the Chroma DB
 
 #Requires -Version 7.0
 
 param(
     [Parameter(Mandatory=$true)]
-    [string]$DirectoryPath,
+    [string]$CollectionName,
+    
+    [Parameter(Mandatory=$false)]
+    [string]$DatabasePath,
     
     [Parameter(Mandatory=$false)]
     [string]$OllamaUrl = "http://localhost:11434",
@@ -21,10 +24,10 @@ param(
     [string]$PDFFileExtension = ".pdf",
     
     [Parameter(Mandatory=$false)]
-    [string]$ProcessorScript,
+    [string]$HandlerScript,
     
     [Parameter(Mandatory=$false)]
-    [hashtable]$ProcessorScriptParams = @{},
+    [hashtable]$HandlerScriptParams = @{},
     
     [Parameter(Mandatory=$false)]
     [bool]$UseChunking = $true,
@@ -45,28 +48,34 @@ param(
     [string]$StopFilePath = ".stop_processing"
 )
 
-
-# Import required functions
+# Import required modules
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
-$fileTrackerModule = Join-Path -Path $scriptPath -ChildPath "..\FileTracker\FileTracker-Shared.psm1"
-$VectorDbPath = Join-Path -Path $DirectoryPath -ChildPath ".ai\Vectors"
-if (Test-Path $fileTrackerModule) {
-    Import-Module $fileTrackerModule -Force
-}
-else {
-    Write-Error "FileTracker module not found at: $fileTrackerModule"
-    exit 1
+$databaseSharedModule = Join-Path -Path $scriptPath -ChildPath "..\FileTracker\Database-Shared.psm1"
+
+Import-Module $databaseSharedModule -Force
+
+# If DatabasePath is not provided, use the default path
+if (-not $DatabasePath) {
+    $DatabasePath = Get-DefaultDatabasePath
+    Write-Host "Using default database path: $DatabasePath" -ForegroundColor Cyan
 }
 
 # Ensure temp directory exists
-$TempDir = Join-Path -Path $DirectoryPath -ChildPath ".ai\temp"
+$appDataDir = Join-Path -Path $env:APPDATA -ChildPath "FileTracker"
+$TempDir = Join-Path -Path $appDataDir -ChildPath "temp"
 if (-not (Test-Path -Path $TempDir)) {
     New-Item -Path $TempDir -ItemType Directory -Force | Out-Null
 }
 
+# Setup the Vector DB path
+$VectorDbPath = Join-Path -Path $appDataDir -ChildPath "Vectors"
+if (-not (Test-Path -Path $VectorDbPath)) {
+    New-Item -Path $VectorDbPath -ItemType Directory -Force | Out-Null
+}
+
 # Initialize log file
 $logDate = Get-Date -Format "yyyy-MM-dd"
-$logFileName = "ProcessDirtyFiles_$logDate.log"
+$logFileName = "ProcessCollection_${CollectionName}_$logDate.log"
 $logFilePath = Join-Path -Path $TempDir -ChildPath $logFileName
 
 function Write-Log {
@@ -83,13 +92,13 @@ function Write-Log {
     
     # Write to console with appropriate color
     if ($Level -eq "ERROR") {
-        Write-Host $logMessage
+        Write-Host $logMessage -ForegroundColor Red
     }
     elseif ($Level -eq "WARNING") {
-        Write-Host $logMessage
+        Write-Host $logMessage -ForegroundColor Yellow
     }
     elseif ($Verbose -or $Level -eq "INFO") {
-        Write-Host $logMessage
+        Write-Host $logMessage -ForegroundColor Green
     }
     
     # Write to log file
@@ -103,7 +112,10 @@ function Process-DirtyFile {
     )
 
     $filePath = $FileInfo.FilePath
-    Write-Log "Processing dirty file: $filePath"
+    $fileId = $FileInfo.Id
+    $collectionId = $FileInfo.CollectionId
+    
+    Write-Log "Processing dirty file: $filePath (ID: $fileId) in collection: $CollectionName"
     
     # Check if file exists
     if (-not (Test-Path -Path $filePath)) {
@@ -113,14 +125,14 @@ function Process-DirtyFile {
     }
     
     # If a custom processor script is provided, use it
-    if ($ProcessorScript) {
+    if ($HandlerScript) {
         try {
-            if (-not (Test-Path -Path $ProcessorScript)) {
-                Write-Log "Custom processor script not found: $ProcessorScript" -Level "ERROR"
+            if (-not (Test-Path -Path $HandlerScript)) {
+                Write-Log "Custom processor script not found: $HandlerScript" -Level "ERROR"
                 return
             }
             
-            Write-Log "Using custom processor script: $ProcessorScript"
+            Write-Log "Using custom processor script: $HandlerScript"
             
             # Prepare parameters for the processor script
             $scriptParams = @{
@@ -130,15 +142,18 @@ function Process-DirtyFile {
                 EmbeddingModel = $EmbeddingModel
                 TempDir = $TempDir
                 ScriptPath = $scriptPath
+                CollectionName = $CollectionName
+                FileId = $fileId
+                CollectionId = $collectionId
             }
             
             # Add any additional parameters passed to the processor script
-            foreach ($key in $ProcessorScriptParams.Keys) {
-                $scriptParams[$key] = $ProcessorScriptParams[$key]
+            foreach ($key in $HandlerScriptParams.Keys) {
+                $scriptParams[$key] = $HandlerScriptParams[$key]
             }
             
             # Execute the custom processor script
-            & $ProcessorScript @scriptParams
+            & $HandlerScript @scriptParams
             
             Write-Log "Custom processor script completed for: $filePath"
         }
@@ -169,14 +184,194 @@ function Process-DirtyFile {
         }
     }
     
-    # Mark the file as processed in the tracker
+    # Mark the file as processed in the database
     try {
-        $markProcessedScript = Join-Path -Path $scriptPath -ChildPath "..\FileTracker\Mark-FileAsProcessed.ps1"
-        & $markProcessedScript -FolderPath $FolderPath -FilePath $filePath
-        Write-Log "Marked file as processed: $filePath"
+        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+        
+        $updateCommand = $connection.CreateCommand()
+        $updateCommand.CommandText = "UPDATE files SET Dirty = 0 WHERE id = @FileId"
+        $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FileId", $fileId)))
+        $updateCommand.ExecuteNonQuery()
+        
+        $connection.Close()
+        $connection.Dispose()
+        
+        Write-Log "Marked file as processed: $filePath (ID: $fileId)"
     }
     catch {
         Write-Log "Error marking file as processed: $_" -Level "ERROR"
+    }
+}
+
+function Process-PDFFile {
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$FilePath
+    )
+    
+    try {
+        Write-Log "PDF processing would occur here: $FilePath"
+        # Placeholder for PDF processing - could call Convert-PDFToMarkdown.ps1 here
+        # For now, just adding to ChromaDB as a placeholder
+        Add-ToChromaDB -FilePath $FilePath -Content "PDF content would be processed here"
+    }
+    catch {
+        Write-Log "Error processing PDF file: $_" -Level "ERROR"
+    }
+}
+
+function Process-TextFile {
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$FilePath
+    )
+    
+    try {
+        # Read the file content
+        $content = Get-Content -Path $FilePath -Raw
+        if ([string]::IsNullOrEmpty($content)) {
+            Write-Log "File is empty: $FilePath" -Level "WARNING"
+            return
+        }
+        
+        # Add to ChromaDB
+        Add-ToChromaDB -FilePath $FilePath -Content $content
+    }
+    catch {
+        Write-Log "Error processing text file: $_" -Level "ERROR"
+    }
+}
+
+function Add-ToChromaDB {
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$FilePath,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$Content
+    )
+    
+    try {
+        # Create a temporary Python script to add the document to ChromaDB
+        $docId = [System.IO.Path]::GetFileName($FilePath)
+        Write-Log "Adding document to ChromaDB: $docId"
+        
+        $tempPythonScript = [System.IO.Path]::GetTempFileName() + ".py"
+        
+        $pythonCode = @"
+import sys
+import os
+import chromadb
+from chromadb.config import Settings
+
+try:
+    # Setup ChromaDB client
+    chroma_client = chromadb.PersistentClient(path='$($VectorDbPath.Replace("\", "\\"))', settings=Settings(anonymized_telemetry=False))
+    
+    # Get or create collections
+    document_collection = chroma_client.get_or_create_collection(name="document_collection")
+    chunks_collection = chroma_client.get_or_create_collection(name="document_chunks_collection")
+    
+    # Remove any existing entries for this file
+    try:
+        document_collection.delete(where={"source": "$($FilePath.Replace("\", "\\"))"})
+    except Exception as e:
+        print(f"Note: Could not delete by metadata: {str(e)}")
+    
+    try:
+        doc_id = "$docId"
+        existing_ids = document_collection.get(ids=[doc_id])
+        if existing_ids["ids"]:
+            document_collection.delete(ids=[doc_id])
+    except Exception as e:
+        print(f"Note: Could not delete by ID: {str(e)}")
+    
+    # Add document metadata
+    document_metadata = {
+        "source": "$($FilePath.Replace("\", "\\"))",
+        "filename": os.path.basename("$($FilePath.Replace("\", "\\"))"),
+        "collection_name": "$CollectionName"
+    }
+    
+    # Store full document content
+    full_content = """$($Content.Replace('"', '\"').Replace('"""', '\"""'))"""
+    
+    document_collection.add(
+        ids=[doc_id],
+        documents=[full_content],
+        metadatas=[document_metadata]
+    )
+    
+    # If chunking is enabled
+    if $($UseChunking.ToString().ToLower()):
+        # Remove any existing chunks
+        try:
+            chunks_collection.delete(where={"source": "$($FilePath.Replace("\", "\\"))"})
+        except Exception as e:
+            print(f"Note: Could not delete chunks by metadata: {str(e)}")
+        
+        # Simple chunking approach
+        chunk_size = $ChunkSize
+        chunk_overlap = $ChunkOverlap
+        
+        words = full_content.split()
+        chunks = []
+        chunk_ids = []
+        chunk_metadatas = []
+        
+        for i in range(0, len(words), chunk_size - chunk_overlap):
+            if i > 0:
+                start_idx = i - chunk_overlap
+            else:
+                start_idx = i
+                
+            end_idx = min(i + chunk_size, len(words))
+            chunk = " ".join(words[start_idx:end_idx])
+            
+            chunk_id = f"{doc_id}_chunk_{len(chunks)}"
+            chunk_metadata = document_metadata.copy()
+            chunk_metadata["chunk_id"] = len(chunks)
+            chunk_metadata["chunk_start"] = start_idx
+            chunk_metadata["chunk_end"] = end_idx
+            
+            chunks.append(chunk)
+            chunk_ids.append(chunk_id)
+            chunk_metadatas.append(chunk_metadata)
+            
+            if end_idx >= len(words):
+                break
+        
+        # Add chunks to collection
+        if chunks:
+            chunks_collection.add(
+                ids=chunk_ids,
+                documents=chunks,
+                metadatas=chunk_metadatas
+            )
+            print(f"Added {len(chunks)} chunks to ChromaDB")
+    
+    print("Document successfully added to ChromaDB")
+    sys.exit(0)
+except Exception as e:
+    print(f"Error adding document to ChromaDB: {str(e)}")
+    sys.exit(1)
+"@
+
+        $pythonCode | Out-File -FilePath $tempPythonScript -Encoding utf8
+        
+        # Execute the Python script
+        $results = python $tempPythonScript 2>&1
+        foreach ($line in $results) {
+            Write-Log $line
+        }
+        
+        # Clean up
+        $null = Remove-Item -Path $tempPythonScript -Force
+        
+        Write-Log "Successfully added document to ChromaDB: $docId"
+    }
+    catch {
+        Write-Log "Error adding document to ChromaDB: $_" -Level "ERROR"
     }
 }
 
@@ -286,31 +481,26 @@ function Test-StopFile {
 }
 
 # Function to process a single batch of dirty files
-function Process-DirtyFilesBatch {
+function Process-CollectionDirtyFilesBatch {
     param(
-        [string]$DirectoryPath
+        [string]$CollectionName,
+        [string]$DatabasePath
     )
     
     try {
-        Write-Log "Starting dirty files processing for folder: $DirectoryPath"
+        Write-Log "Starting dirty files processing for collection: $CollectionName"
         
-        # Check if folder exists
-        if (-not (Test-Path -Path $DirectoryPath)) {
-            Write-Log "Folder does not exist: $DirectoryPath" -Level "ERROR"
-            return $false
-        }
-        
-        # Get list of dirty files
-        Write-Log "Fetching list of dirty files..."
-        $getDirtyFilesScript = Join-Path -Path $scriptPath -ChildPath "..\FileTracker\Get-DirtyFiles.ps1"
-        $dirtyFiles = & $getDirtyFilesScript -FolderPath $DirectoryPath -AsObject
+        # Get list of dirty files from the collection
+        Write-Log "Fetching list of dirty files from collection..."
+        $getDirtyFilesScript = Join-Path -Path $scriptPath -ChildPath "..\FileTracker\Get-CollectionDirtyFiles.ps1"
+        $dirtyFiles = & $getDirtyFilesScript -CollectionName $CollectionName -DatabasePath $DatabasePath -AsObject
         
         if (-not $dirtyFiles -or $dirtyFiles.Count -eq 0) {
-            Write-Log "No dirty files found."
+            Write-Log "No dirty files found in collection."
             return $true
         }
         
-        Write-Log "Found $($dirtyFiles.Count) dirty files to process."
+        Write-Log "Found $($dirtyFiles.Count) dirty files to process in collection '$CollectionName'."
         
         # Process each dirty file
         foreach ($file in $dirtyFiles) {
@@ -322,7 +512,7 @@ function Process-DirtyFilesBatch {
             }
         }
         
-        Write-Log "Completed processing all dirty files."
+        Write-Log "Completed processing all dirty files in collection '$CollectionName'."
         
         # Clean up temporary files older than 24 hours
         if (Test-Path -Path $TempDir) {
@@ -331,32 +521,6 @@ function Process-DirtyFilesBatch {
                 Write-Log "Cleaning up $($oldFiles.Count) temporary files older than 24 hours..."
                 $oldFiles | Remove-Item -Force | Out-Null
             }
-        }
-        
-        # Make sure all dirty flags are cleared
-        try {
-            Write-Log "Ensuring all dirty flags are cleared..."
-            $processedFiles = $dirtyFiles | ForEach-Object { $_.FilePath }
-            
-            if ($processedFiles -and $processedFiles.Count -gt 0) {
-                Write-Log "Clearing dirty flags for $($processedFiles.Count) processed files."
-                
-                foreach ($filePath in $processedFiles) {
-                    if (Test-Path -Path $filePath) {
-                        $markProcessedScript = Join-Path -Path $scriptPath -ChildPath "..\FileTracker\Mark-FileAsProcessed.ps1"
-                        & $markProcessedScript -FolderPath $DirectoryPath -FilePath $filePath
-                        Write-Log "Final clear dirty flag for: $filePath"
-                    }
-                }
-                
-                Write-Log "All dirty flags have been cleared."
-            }
-            else {
-                Write-Log "No files to clear dirty flags for."
-            }
-        }
-        catch {
-            Write-Log "Error clearing dirty flags: $_" -Level "ERROR"
         }
         
         return $true
@@ -371,7 +535,7 @@ function Process-DirtyFilesBatch {
 try {
     # If running in continuous mode, set up a loop
     if ($Continuous) {
-        Write-Log "Starting continuous processing mode. Polling every $ProcessInterval minutes."
+        Write-Log "Starting continuous processing mode for collection '$CollectionName'. Polling every $ProcessInterval minutes."
         Write-Log "To stop processing, create a stop file at: $StopFilePath" -Level "WARNING"
         
         $keepRunning = $true
@@ -388,7 +552,7 @@ try {
             }
             
             # Process the current batch of dirty files
-            $success = Process-DirtyFilesBatch -DirectoryPath $DirectoryPath
+            $success = Process-CollectionDirtyFilesBatch -CollectionName $CollectionName -DatabasePath $DatabasePath
             
             # Check if we should continue
             if (-not $success) {
@@ -402,7 +566,7 @@ try {
             
             # If we're still running, wait for the next interval
             if ($keepRunning) {
-                $nextRun = (Get-Date).AddMinutes($PollingInterval)
+                $nextRun = (Get-Date).AddMinutes($ProcessInterval)
                 Write-Log "Next processing run scheduled at: $nextRun"
                 
                 # Sleep in smaller increments to check for stop file periodically
@@ -431,7 +595,7 @@ try {
     }
     # Otherwise, just run once
     else {
-        $success = Process-DirtyFilesBatch -DirectoryPath $DirectoryPath
+        $success = Process-CollectionDirtyFilesBatch -CollectionName $CollectionName -DatabasePath $DatabasePath
         if (-not $success) {
             exit 1
         }

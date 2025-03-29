@@ -210,7 +210,7 @@ catch {
 # Start a background job to process dirty files periodically
 Write-Log "Setting up periodic processing of dirty files (every $ProcessInterval seconds)..." -Level "INFO"
 try {
-    $output = & ".\Processing\Process-DirtyFiles.ps1" -DirectoryPath $DirectoryPath -ProcessorScript ".\Processing\Update-LocalChromaDb.ps1" &
+    $output = & ".\Processing\Process-DirtyFiles.ps1" -DirectoryPath $DirectoryPath -HandlerScript ".\Processing\Update-LocalChromaDb.ps1" &
     Write-Log "Dirty files processor job started successfully (Job ID: $($processingJob.Id))" -Level "INFO"
 }
 catch {

@@ -210,7 +210,7 @@ try {
     }
 
     # Configure custom processor (Update-LocalChromaDb.ps1) parameters
-    $processorScriptParams = @{
+    $handlerScriptParams = @{
         "TempDir" = $tempDir
         "CustomParam1" = "Initial Setup"
         "CustomParam2" = "Configuration"
@@ -219,7 +219,7 @@ try {
     # Process any existing files to initialize the database
     if ($ProcessExistingFiles) {
         Write-Log "Processing existing files to initialize ChromaDB..." -Level "INFO"
-        & $processDirtyFilesScript -DirectoryPath $DirectoryPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel -ProcessorScript $updateLocalChromaDbScript -ProcessorScriptParams $processorScriptParams
+        & $processDirtyFilesScript -DirectoryPath $DirectoryPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel -HandlerScript $updateLocalChromaDbScript -HandlerScriptParams $handlerScriptParams
     } else {
         Write-Log "Skipping processing of existing files as specified by parameter." -Level "INFO"
     }
