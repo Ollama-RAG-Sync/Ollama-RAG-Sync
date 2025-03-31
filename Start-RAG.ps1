@@ -43,6 +43,15 @@
 .PARAMETER ChunkOverlap
     Overlap between chunks when chunking is enabled (default: 200).
 
+.PARAMETER FileTrackerPort
+    Port for the FileTracker service (default: 8080).
+
+.PARAMETER ProcessorPort
+    Port for the Processor REST API service (default: 8083).
+
+.PARAMETER VectorsPort
+    Port for the Vectors API service (default: 8082).
+
 .PARAMETER ApiProxyPort
     Port for the API proxy server (default: 8081).
 
@@ -60,6 +69,9 @@
 
 .EXAMPLE
     .\Start-RAG.ps1 -DirectoryPath "D:\Documents" -ProcessInterval 60 -EmbeddingModel "llama3" -UseChunking $false -ApiProxyPort 9000
+
+.EXAMPLE
+    .\Start-RAG.ps1 -DirectoryPath "D:\Documents" -FileTrackerPort 9001 -ProcessorPort 9002 -VectorsPort 9003 -ApiProxyPort 9004
 #>
 
 param (
@@ -87,6 +99,12 @@ param (
     [int]$ChunkSize = 1000,
     [Parameter(Mandatory = $false)]
     [int]$ChunkOverlap = 200,
+    [Parameter(Mandatory = $false)]
+    [int]$FileTrackerPort = 8080,
+    [Parameter(Mandatory = $false)]
+    [int]$ProcessorPort = 8083,
+    [Parameter(Mandatory = $false)]
+    [int]$VectorsPort = 8082,
     [Parameter(Mandatory = $false)]
     [int]$ApiProxyPort = 8081,
     [Parameter(Mandatory = $false)]
@@ -155,14 +173,13 @@ try {
         & $scriptPath -ChromaDbPath $chromaDbPath -OllamaUrl $ollamaUrl -EmbeddingModel $embeddingModel -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -Port $apiPort
     }
     
-    $vectorsAPIPort = 8082
-    $vectorsAPIJob = Start-Job -ScriptBlock $vectorsAPIJobScript -ArgumentList $vectorsAPIScript, $vectorDbPath, $OllamaUrl, $EmbeddingModel, $ChunkSize, $ChunkOverlap, $vectorsAPIPort
+    $vectorsAPIJob = Start-Job -ScriptBlock $vectorsAPIJobScript -ArgumentList $vectorsAPIScript, $vectorDbPath, $OllamaUrl, $EmbeddingModel, $ChunkSize, $ChunkOverlap, $VectorsPort
     
     # Wait a moment for the API to start
     Start-Sleep -Seconds 2
     
     Write-Log "Vectors API started successfully (Job ID: $($vectorsAPIJob.Id))" -Level "INFO"
-    Write-Log "Vectors API available at: http://localhost:$vectorsAPIPort/" -Level "INFO"
+    Write-Log "Vectors API available at: http://localhost:$VectorsPort/" -Level "INFO"
 }
 catch {
     Write-Log "Error starting Vectors subsystem: $_" -Level "ERROR"
@@ -190,14 +207,13 @@ try {
         & $scriptPath -InstallPath $installPath -OmitFolders $omitFolders -Port $port
     }
     
-    $fileTrackerPort = 8080
-    $fileTrackerJob = Start-Job -ScriptBlock $fileTrackerJobScript -ArgumentList $fileTrackerScript, $DirectoryPath, @('.ai', '.git', 'node_modules'), $fileTrackerPort
+    $fileTrackerJob = Start-Job -ScriptBlock $fileTrackerJobScript -ArgumentList $fileTrackerScript, $DirectoryPath, @('.ai', '.git', 'node_modules'), $FileTrackerPort
     
     # Wait a moment for the FileTracker to start
     Start-Sleep -Seconds 2
     
     Write-Log "FileTracker started successfully (Job ID: $($fileTrackerJob.Id))" -Level "INFO"
-    Write-Log "FileTracker API available at: http://localhost:$fileTrackerPort/api" -Level "INFO"
+    Write-Log "FileTracker API available at: http://localhost:$FileTrackerPort/api" -Level "INFO"
     
     # Start watching the collection using the FileTracker API
     $watchCollectionScript = Join-Path -Path $scriptDirectory -ChildPath "FileTracker\Start-CollectionWatch.ps1"
@@ -214,7 +230,7 @@ try {
         & $scriptPath -CollectionName $collectionName -SourceFolder $sourceFolder -FileTrackerApiUrl $fileTrackerApiUrl -ProcessInterval $processInterval -FileFilter $fileFilter -IncludeSubdirectories:$includeSubdirectories
     }
     
-    $fileTrackerApiUrl = "http://localhost:$fileTrackerPort/api"
+    $fileTrackerApiUrl = "http://localhost:$FileTrackerPort/api"
     $watchCollectionJob = Start-Job -ScriptBlock $watchCollectionJobScript -ArgumentList $watchCollectionScript, $collectionName, $DirectoryPath, $fileTrackerApiUrl, $ProcessInterval, $FileFilter, $IncludeSubdirectories
     
     Write-Log "Collection watcher started successfully (Job ID: $($watchCollectionJob.Id))" -Level "INFO"
@@ -244,14 +260,13 @@ try {
         & $scriptPath -FileTrackerUrl $fileTrackerApiUrl -OllamaUrl $ollamaUrl -EmbeddingModel $embeddingModel -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -UseChunking $true -Port $port
     }
     
-    $processorPort = 8083
-    $processorJob = Start-Job -ScriptBlock $processorJobScript -ArgumentList $processorScript, $fileTrackerApiUrl, $OllamaUrl, $EmbeddingModel, $ChunkSize, $ChunkOverlap, $processorPort
+    $processorJob = Start-Job -ScriptBlock $processorJobScript -ArgumentList $processorScript, $fileTrackerApiUrl, $OllamaUrl, $EmbeddingModel, $ChunkSize, $ChunkOverlap, $ProcessorPort
     
     # Wait a moment for the Processor API to start
     Start-Sleep -Seconds 2
     
     Write-Log "Processor REST API started successfully (Job ID: $($processorJob.Id))" -Level "INFO"
-    Write-Log "Processor API available at: http://localhost:$processorPort/api" -Level "INFO"
+    Write-Log "Processor API available at: http://localhost:$ProcessorPort/api" -Level "INFO"
 }
 catch {
     Write-Log "Error starting Processor subsystem: $_" -Level "ERROR"
@@ -279,6 +294,7 @@ try {
         & $scriptPath -ListenAddress $listenAddress -Port $port -DirectoryPath $directoryPath -OllamaBaseUrl $ollamaUrl -VectorsApiUrl $vectorsApiUrl -EmbeddingModel $embeddingModel -RelevanceThreshold $relevanceThreshold -MaxContextDocs $maxContextDocs -ContextOnlyMode:$contextOnlyMode
     }
     
+    $vectorsApiUrl = "http://localhost:$VectorsPort/"
     $apiProxyJob = Start-Job -ScriptBlock $proxyJobScript -ArgumentList $proxyScript, "localhost", $ApiProxyPort, $DirectoryPath, $OllamaUrl, $vectorsApiUrl, $EmbeddingModel, $RelevanceThreshold, $MaxContextDocs, $ContextOnlyMode
     
     Write-Log "API proxy server started successfully (Job ID: $($apiProxyJob.Id))" -Level "INFO"
