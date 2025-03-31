@@ -64,47 +64,36 @@
 
 param (
     [Parameter(Mandatory = $true)]
+    [string]$InstallPath,
+    [Parameter(Mandatory = $true)]
     [string]$DirectoryPath,
-    
     [Parameter(Mandatory = $false)]
     [string]$EmbeddingModel = "mxbai-embed-large:latest",
-    
     [Parameter(Mandatory = $false)]
     [string]$OllamaUrl = "http://localhost:11434",
-    
     [Parameter(Mandatory = $false)]
     [string]$FileFilter = "*.*",
-    
     [Parameter(Mandatory = $false)]
     [bool]$IncludeSubdirectories = $true,
-    
     [Parameter(Mandatory = $false)]
     [int]$ProcessInterval = 30,
-    
     [Parameter(Mandatory = $false)]
     [string]$TextFileExtensions = ".txt,.md,.html,.csv,.json",
-    
     [Parameter(Mandatory = $false)]
     [string]$PDFFileExtension = ".pdf",
-    
     [Parameter(Mandatory = $false)]
     [bool]$UseChunking = $true,
-    
     [Parameter(Mandatory = $false)]
     [int]$ChunkSize = 1000,
-    
     [Parameter(Mandatory = $false)]
     [int]$ChunkOverlap = 200,
-    
     [Parameter(Mandatory = $false)]
     [int]$ApiProxyPort = 8081,
-    
     [Parameter(Mandatory = $false)]
     [int]$MaxContextDocs = 5,
 
     [Parameter(Mandatory = $false)]
     [decimal]$RelevanceThreshold = 0.75,
-    
     [Parameter(Mandatory=$false)]
     [switch]$ContextOnlyMode
 )
@@ -132,17 +121,7 @@ if (-not (Test-Path -Path $DirectoryPath)) {
     exit 1
 }
 
-# Define paths
-$aiFolder = Join-Path -Path $DirectoryPath -ChildPath ".ai"
-$fileTrackerDbPath = Join-Path -Path $aiFolder -ChildPath "FileTracker.db"
-$vectorDbPath = Join-Path -Path $aiFolder -ChildPath "Vectors"
-$tempDir = Join-Path -Path $aiFolder -ChildPath "temp"
-
-# Ensure .ai folder exists
-if (-not (Test-Path -Path $aiFolder)) {
-    Write-Log ".ai folder not found at '$aiFolder'. Please run Setup-RAG.ps1 first." -Level "ERROR"
-    exit 1
-}
+$fileTrackerDbPath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
 
 # Get script directory for accessing other scripts
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -151,18 +130,6 @@ $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not (Test-Path -Path $fileTrackerDbPath)) {
     Write-Log "File tracker database not found at '$fileTrackerDbPath'. Please run Setup-RAG.ps1 first." -Level "ERROR"
     exit 1
-}
-
-# Ensure the vector database directory exists
-if (-not (Test-Path -Path $vectorDbPath)) {
-    Write-Log "Vector database directory not found at '$vectorDbPath'. Please run Setup-RAG.ps1 first." -Level "ERROR"
-    exit 1
-}
-
-# Ensure temp directory exists
-if (-not (Test-Path -Path $tempDir)) {
-    Write-Log "Creating temporary directory at '$tempDir'..." -Level "INFO"
-    New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
 }
 
 # Start Vectors subsystem
@@ -259,28 +226,32 @@ catch {
     exit 1
 }
 
-# Start the Processor subsystem to handle file processing
-Write-Log "Starting Processor subsystem..." -Level "INFO"
+# Start the Processor REST API to handle file processing
+Write-Log "Starting Processor REST API..." -Level "INFO"
 try {
-    # Start synchronization job to process files
-    $synchronizeScript = Join-Path -Path $scriptDirectory -ChildPath "Processor\Synchronize-Collection.ps1"
+    # Start Processor API service
+    $processorScript = Join-Path -Path $scriptDirectory -ChildPath "Processor\Start-Processor.ps1"
     
     # Verify script exists
-    if (-not (Test-Path -Path $synchronizeScript)) {
-        Write-Log "Synchronize-Collection.ps1 script not found at: $synchronizeScript" -Level "ERROR"
+    if (-not (Test-Path -Path $processorScript)) {
+        Write-Log "Start-Processor.ps1 script not found at: $processorScript" -Level "ERROR"
         exit 1
     }
     
-    # Create synchronize job
-    $synchronizeJobScript = {
-        param($scriptPath, $collectionName, $fileTrackerApiUrl, $vectorsApiUrl, $chunkSize, $chunkOverlap, $continuous)
-        & $scriptPath -CollectionName $collectionName -FileTrackerApiUrl $fileTrackerApiUrl -VectorsApiUrl $vectorsApiUrl -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -Continuous:$continuous
+    # Create processor API job
+    $processorJobScript = {
+        param($scriptPath, $fileTrackerApiUrl, $ollamaUrl, $embeddingModel, $chunkSize, $chunkOverlap, $port)
+        & $scriptPath -FileTrackerUrl $fileTrackerApiUrl -OllamaUrl $ollamaUrl -EmbeddingModel $embeddingModel -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -UseChunking $true -Port $port
     }
     
-    $vectorsApiUrl = "http://localhost:$vectorsAPIPort"
-    $synchronizeJob = Start-Job -ScriptBlock $synchronizeJobScript -ArgumentList $synchronizeScript, $collectionName, $fileTrackerApiUrl, $vectorsApiUrl, $ChunkSize, $ChunkOverlap, $true
+    $processorPort = 8083
+    $processorJob = Start-Job -ScriptBlock $processorJobScript -ArgumentList $processorScript, $fileTrackerApiUrl, $OllamaUrl, $EmbeddingModel, $ChunkSize, $ChunkOverlap, $processorPort
     
-    Write-Log "Collection synchronization started successfully (Job ID: $($synchronizeJob.Id))" -Level "INFO"
+    # Wait a moment for the Processor API to start
+    Start-Sleep -Seconds 2
+    
+    Write-Log "Processor REST API started successfully (Job ID: $($processorJob.Id))" -Level "INFO"
+    Write-Log "Processor API available at: http://localhost:$processorPort/api" -Level "INFO"
 }
 catch {
     Write-Log "Error starting Processor subsystem: $_" -Level "ERROR"
@@ -319,7 +290,7 @@ catch {
     if ($vectorsAPIJob) { Stop-Job -Id $vectorsAPIJob.Id -ErrorAction SilentlyContinue; Remove-Job -Id $vectorsAPIJob.Id -Force -ErrorAction SilentlyContinue }
     if ($fileTrackerJob) { Stop-Job -Id $fileTrackerJob.Id -ErrorAction SilentlyContinue; Remove-Job -Id $fileTrackerJob.Id -Force -ErrorAction SilentlyContinue }
     if ($watchCollectionJob) { Stop-Job -Id $watchCollectionJob.Id -ErrorAction SilentlyContinue; Remove-Job -Id $watchCollectionJob.Id -Force -ErrorAction SilentlyContinue }
-    if ($synchronizeJob) { Stop-Job -Id $synchronizeJob.Id -ErrorAction SilentlyContinue; Remove-Job -Id $synchronizeJob.Id -Force -ErrorAction SilentlyContinue }
+    if ($processorJob) { Stop-Job -Id $processorJob.Id -ErrorAction SilentlyContinue; Remove-Job -Id $processorJob.Id -Force -ErrorAction SilentlyContinue }
 }
 
 # Display summary and useful information
@@ -336,7 +307,7 @@ if ($ContextOnlyMode) {
 Write-Log "- Vectors API job ID: $($vectorsAPIJob.Id)" -Level "INFO" 
 Write-Log "- FileTracker job ID: $($fileTrackerJob.Id)" -Level "INFO"
 Write-Log "- Collection watcher job ID: $($watchCollectionJob.Id)" -Level "INFO"
-Write-Log "- Collection synchronization job ID: $($synchronizeJob.Id)" -Level "INFO"
+Write-Log "- Processor API job ID: $($processorJob.Id)" -Level "INFO"
 Write-Log "- API proxy server job ID: $($apiProxyJob.Id)" -Level "INFO"
 Write-Log "- API endpoint: http://localhost:$ApiProxyPort/" -Level "INFO"
 
@@ -344,7 +315,7 @@ Write-Log "`nThe system is now running in the background. To stop it:" -Level "I
 Write-Log "1. Stop the Vectors API job: Stop-Job -Id $($vectorsAPIJob.Id); Remove-Job -Id $($vectorsAPIJob.Id)" -Level "INFO"
 Write-Log "2. Stop the FileTracker job: Stop-Job -Id $($fileTrackerJob.Id); Remove-Job -Id $($fileTrackerJob.Id)" -Level "INFO"
 Write-Log "3. Stop the collection watcher job: Stop-Job -Id $($watchCollectionJob.Id); Remove-Job -Id $($watchCollectionJob.Id)" -Level "INFO"
-Write-Log "4. Stop the collection synchronization job: Stop-Job -Id $($synchronizeJob.Id); Remove-Job -Id $($synchronizeJob.Id)" -Level "INFO"
+Write-Log "4. Stop the Processor API job: Stop-Job -Id $($processorJob.Id); Remove-Job -Id $($processorJob.Id)" -Level "INFO"
 Write-Log "5. Stop the API proxy server job: Stop-Job -Id $($apiProxyJob.Id); Remove-Job -Id $($apiProxyJob.Id)" -Level "INFO"
 
 Write-Log "`nTo interact with the RAG system:" -Level "INFO"
@@ -392,12 +363,12 @@ finally {
         Write-Log "Collection watcher job stopped and removed." -Level "INFO"
     }
     
-    # Stop the collection synchronization job
-    if ($synchronizeJob) {
-        Write-Log "Stopping collection synchronization job (ID: $($synchronizeJob.Id))..." -Level "INFO"
-        Stop-Job -Id $synchronizeJob.Id -ErrorAction SilentlyContinue
-        Remove-Job -Id $synchronizeJob.Id -Force -ErrorAction SilentlyContinue
-        Write-Log "Collection synchronization job stopped and removed." -Level "INFO"
+    # Stop the Processor API job
+    if ($processorJob) {
+        Write-Log "Stopping Processor API job (ID: $($processorJob.Id))..." -Level "INFO"
+        Stop-Job -Id $processorJob.Id -ErrorAction SilentlyContinue
+        Remove-Job -Id $processorJob.Id -Force -ErrorAction SilentlyContinue
+        Write-Log "Processor API job stopped and removed." -Level "INFO"
     }
     
     # Stop and remove the API proxy server job
