@@ -36,6 +36,9 @@
 
 param (
     [Parameter(Mandatory = $true)]
+    [string]$InstallPath,
+
+    [Parameter(Mandatory = $true)]
     [string]$DirectoryPath,
     
     [Parameter(Mandatory = $false)]
@@ -117,37 +120,9 @@ Ensure-Package "chromadb"
 Ensure-Package "requests"
 Ensure-Package "numpy"
 
-# Create .ai subfolder
-$aiFolder = Join-Path -Path $DirectoryPath -ChildPath ".ai"
-if (-not (Test-Path -Path $aiFolder)) {
-    Write-Log "Creating .ai folder at '$aiFolder'..." -Level "INFO"
-    try {
-        New-Item -Path $aiFolder -ItemType Directory -Force | Out-Null
-        Write-Log "Created .ai folder successfully" -Level "INFO"
-    }
-    catch {
-        Write-Log "Failed to create .ai folder: $_" -Level "ERROR"
-        exit 1
-    }
-}
-
-# Create libs subfolder in .ai
-$libsFolder = Join-Path -Path $aiFolder -ChildPath "libs"
-if (-not (Test-Path -Path $libsFolder)) {
-    Write-Log "Creating libs folder at '$libsFolder'..." -Level "INFO"
-    try {
-        New-Item -Path $libsFolder -ItemType Directory -Force | Out-Null
-        Write-Log "Created libs folder successfully" -Level "INFO"
-    }
-    catch {
-        Write-Log "Failed to create libs folder: $_" -Level "ERROR"
-        exit 1
-    }
-}
-
 # Define paths
-$fileTrackerDbPath = Join-Path -Path $aiFolder -ChildPath "FileTracker.db"
-$vectorDbPath = Join-Path -Path $aiFolder -ChildPath "Vectors"
+$fileTrackerDbPath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
+$vectorDbPath = Join-Path -Path $InstallPath -ChildPath "Vectors"
 
 # Get script directory for accessing other scripts
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -156,7 +131,7 @@ $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 Write-Log "Installing FileTracker..." -Level "INFO"
 try {
     $installScript = Join-Path -Path $scriptDirectory -ChildPath "FileTracker\Install-FileTracker.ps1"
-    & $installScript -FolderPath $DirectoryPath
+    & $installScript -InstallPath $InstallPath
     Write-Log "FileTracker installed successfully" -Level "INFO"
 }
 catch {
@@ -168,7 +143,7 @@ catch {
 Write-Log "Initializing file tracker database at '$fileTrackerDbPath'..." -Level "INFO"
 try {
     $initializeScript = Join-Path -Path $scriptDirectory -ChildPath "FileTracker\Initialize-FileTracker.ps1"
-    & $initializeScript -FolderPath $DirectoryPath -DatabasePath $fileTrackerDbPath
+    & $initializeScript -FolderPath $DirectoryPath -DatabasePath $fileTrackerDbPath -InstallPath $InstallPath
     
     if (-not (Test-Path -Path $fileTrackerDbPath)) {
         Write-Log "File tracker database was not created successfully" -Level "ERROR"
@@ -187,12 +162,6 @@ Write-Log "Initializing Vectors subsystem for ChromaDB..." -Level "INFO"
 try {
     # Check for required Python packages
     Ensure-Package "chromadb"
-
-    # Create temporary directory for processing if it doesn't exist
-    $tempDir = Join-Path -Path $aiFolder -ChildPath "temp"
-    if (-not (Test-Path -Path $tempDir)) {
-        New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
-    }
 
     # Initialize Vectors subsystem
     $vectorsScript = Join-Path -Path $scriptDirectory -ChildPath "Vectors\Start-Vectors.ps1"
@@ -239,6 +208,8 @@ try {
     Write-Log "Vectors subsystem initialized successfully" -Level "INFO"
 }
 catch {
+    Write-Host $_.Exception.Message -Foreground "Red"
+    Write-Host $_.ScriptStackTrace -Foreground "DarkGray"
     Write-Log "Error initializing Vectors subsystem: $_" -Level "ERROR"
     exit 1
 }

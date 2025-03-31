@@ -70,7 +70,7 @@ Import-Module $processorFilesModule -Force
 
 # If DatabasePath is not provided, use the default path
 if (-not $DatabasePath) {
-    $DatabasePath = Get-DefaultDatabasePath
+    $DatabasePath = Get-DefaultDatabasePath -InstallPath $InstallPath
     Write-Host "Using default database path: $DatabasePath" -ForegroundColor Cyan
 }
 

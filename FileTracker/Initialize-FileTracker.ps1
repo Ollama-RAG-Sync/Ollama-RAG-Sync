@@ -25,6 +25,9 @@
 param (
     [Parameter(Mandatory = $true)]
     [string]$FolderPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$InstallPath,
     
     [Parameter(Mandatory = $false)]
     [string]$CollectionName,
@@ -46,7 +49,7 @@ Import-Module -Name $databaseSharedPath -Force
 
 # If DatabasePath is not provided, use the default path
 if (-not $DatabasePath) {
-    $DatabasePath = Get-DefaultDatabasePath
+    $DatabasePath = Get-DefaultDatabasePath  -InstallPath $InstallPath
     Write-Host "Using default database path: $DatabasePath" -ForegroundColor Cyan
 }
 
@@ -57,9 +60,9 @@ if (-not $CollectionName) {
 }
 
 # Check if SQLite assemblies exist
-$sqliteAssemblyPath = "$env:APPDATA\FileTracker\libs\Microsoft.Data.Sqlite.dll"
-$sqliteAssemblyPath2 = "$env:APPDATA\FileTracker\libs\SQLitePCLRaw.core.dll"
-$sqliteAssemblyPath3 = "$env:APPDATA\FileTracker\libs\SQLitePCLRaw.provider.e_sqlite3.dll"
+$sqliteAssemblyPath = "$InstallPath\Microsoft.Data.Sqlite.dll"
+$sqliteAssemblyPath2 = "$InstallPath\SQLitePCLRaw.core.dll"
+$sqliteAssemblyPath3 = "$InstallPath\SQLitePCLRaw.provider.e_sqlite3.dll"
 
 # Load SQLite assembly
 try {
@@ -76,8 +79,8 @@ catch {
 # Initialize the centralized collection database if it doesn't exist
 try {
     # Make sure collection database is initialized
-    $initDbScript = Join-Path -Path $scriptParentPath -ChildPath "Initialize-CollectionDatabase.ps1"
-    & $initDbScript -DatabasePath $DatabasePath
+    $initDbScript = Join-Path -Path $scriptParentPath -ChildPath "Initialize-Database.ps1"
+    & $initDbScript -InstallPath $InstallPath
     
     # Get or create the collection
     $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
@@ -91,7 +94,7 @@ try {
     
     if (-not $collectionId) {
         # Create new collection
-        $collection = New-Collection -Name $CollectionName -Description $Description -DatabasePath $DatabasePath
+        $collection = New-Collection -Name $CollectionName -SourceFolder $FolderPath @UpdatedAt -Description $Description -InstallPath $InstallPath
         $collectionId = $collection.id
         Write-Host "Created new collection '$CollectionName' with ID $collectionId" -ForegroundColor Green
     }

@@ -201,9 +201,9 @@ if (-not ($Initialize -or $ShowDatabaseInfo -or $TestQuery)) {
 }
 
 # Export functions from modules to make them accessible
-Export-ModuleMember -Function * -Module Vectors-Core
-Export-ModuleMember -Function * -Module Vectors-Database
-Export-ModuleMember -Function * -Module Vectors-Embeddings
+Import-Module "$modulesPath\Vectors-Core.psm1"
+Import-Module "$modulesPath\Vectors-Database.psm1"
+Import-Module "$modulesPath\Vectors-Embeddings.psm1"
 
 # Return info about the paths to the module files
 return @{
