@@ -27,35 +27,22 @@ Import-Module -Name $databaseSharedPath -Force
 
 $DatabasePath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
 
-# Create database directory if it doesn't exist
-$databaseDir = Split-Path -Path $DatabasePath -Parent
-if (-not (Test-Path -Path $databaseDir)) {
-    New-Item -Path $databaseDir -ItemType Directory | Out-Null
-    Write-Host "Created database directory at $databaseDir" -ForegroundColor Yellow
+if (-not (Test-Path -Path $DatabasePath)) {
+    New-Item -Path $DatabasePath -ItemType File
 }
 
 # Check if SQLite assemblies exist
-$sqliteAssemblyPath = "$InstallPath\libs\Microsoft.Data.Sqlite.dll"
-$sqliteAssemblyPath2 = "$InstallPath\libs\SQLitePCLRaw.core.dll"
-$sqliteAssemblyPath3 = "$InstallPath\libs\SQLitePCLRaw.provider.e_sqlite3.dll"
-
-# Create libs directory if it doesn't exist
-$libsDir = "$InstallPath\libs"
-if (-not (Test-Path -Path $libsDir)) {
-    New-Item -Path $libsDir -ItemType Directory | Out-Null
-    Write-Host "Created libs directory at $libsDir" -ForegroundColor Yellow
-}
+$sqliteAssemblyPath = "$InstallPath\Microsoft.Data.Sqlite.dll"
+$sqliteAssemblyPath2 = "$InstallPath\SQLitePCLRaw.core.dll"
+$sqliteAssemblyPath3 = "$InstallPath\SQLitePCLRaw.provider.e_sqlite3.dll"
 
 # Check if we need to copy SQLite assemblies
 if (-not (Test-Path -Path $sqliteAssemblyPath)) {
-    # Look for SQLite assemblies in the current script directory's .ai\libs folder
-    $sourceLibsDir = Join-Path -Path $scriptParentPath -ChildPath "..\..\.ai\libs"
-    
     if (Test-Path -Path $sourceLibsDir) {
         # Copy SQLite DLLs from the source directory
-        Copy-Item -Path "$sourceLibsDir\Microsoft.Data.Sqlite.dll" -Destination $sqliteAssemblyPath -Force
-        Copy-Item -Path "$sourceLibsDir\SQLitePCLRaw.core.dll" -Destination $sqliteAssemblyPath2 -Force
-        Copy-Item -Path "$sourceLibsDir\SQLitePCLRaw.provider.e_sqlite3.dll" -Destination $sqliteAssemblyPath3 -Force
+        Copy-Item -Path "$InstallPath\Microsoft.Data.Sqlite.dll" -Destination $sqliteAssemblyPath -Force
+        Copy-Item -Path "$InstallPath\SQLitePCLRaw.core.dll" -Destination $sqliteAssemblyPath2 -Force
+        Copy-Item -Path "$InstallPath\SQLitePCLRaw.provider.e_sqlite3.dll" -Destination $sqliteAssemblyPath3 -Force
         
         Write-Host "Copied SQLite assemblies to $libsDir" -ForegroundColor Green
     }

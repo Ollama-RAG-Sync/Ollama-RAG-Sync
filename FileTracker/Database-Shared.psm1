@@ -46,11 +46,11 @@ function Get-DefaultDatabasePath {
     #>
     param (
         [Parameter(Mandatory = $true)]
-        [string]$InstallDirectory
+        [string]$InstallPath
     )
     
     # Create the dedicated FileTracker database directory in the user's AppData folder
-    return Join-Path -Path $InstallDirectory -ChildPath "FileTracker.db"
+    return Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
 }
 
 function Get-CollectionDatabasePath {
@@ -404,7 +404,7 @@ function Update-Collection {
         # Prepare update command
         $updateCommand = $connection.CreateCommand()
         $updateCommand.CommandText = "UPDATE collections SET updated_at = @UpdatedAt"
-        $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@UpdatedAt", [DateTime]::UtcNow.ToString("o"))))
+        $null = $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@UpdatedAt", [DateTime]::UtcNow.ToString("o"))))
         
         # Add name parameter if provided
         if ($Name) {

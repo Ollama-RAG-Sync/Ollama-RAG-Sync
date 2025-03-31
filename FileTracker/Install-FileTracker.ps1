@@ -78,22 +78,8 @@ function Allow-FileWrite {
 
 function Initialize-Directories {
     param (
-        [string]$AiDir,
         [string]$LibsDir
     )
-    
-    # Create .ai folder if it doesn't exist
-    if (-not (Test-Path -Path $AiDir)) {
-        try {
-            New-Item -Path $AiDir -ItemType Directory -ErrorAction Stop
-            Allow-FileWrite -Dir $AiDir
-            Write-Host "Created .ai folder at $AiDir" -ForegroundColor Yellow
-        }
-        catch {
-            Write-Error "Failed to create directory $AiDir : $_"
-            exit 1
-        }
-    }
     
     # Create libs folder if it doesn't exist
     if (-not (Test-Path -Path $LibsDir)) {
@@ -250,7 +236,7 @@ function Install-Package {
     
     $nugetUrl = "https://www.nuget.org/api/v2/package/$packageName/$packageVersion"
     $tempFile = Join-Path -Path $env:TEMP -ChildPath "$packageName.nupkg"
-    $targetFilePath = Join-Path -Path $installFolder -ChildPath $targetFileName
+    $targetFilePath = Join-Path -Path $InstallPath -ChildPath $targetFileName
     
     try {
         # Check if file already exists and is valid
@@ -359,7 +345,7 @@ function Install-Package {
 function Check-AllDllsExist {
     $allExist = $true
     foreach ($package in $packages) {
-        $targetFilePath = Join-Path -Path $installFolder -ChildPath $package.TargetFile
+        $targetFilePath = Join-Path -Path $InstallPath -ChildPath $package.TargetFile
         if (-not (Test-Path -Path $targetFilePath)) {
             $allExist = $false
             break
@@ -371,13 +357,13 @@ function Check-AllDllsExist {
 # Main execution
 try {
     # Create required directories
-    Initialize-Directories -AiDir $aiFolder -LibsDir $installFolder
+    Initialize-Directories -LibsDir $InstallPath
     
     # Check if all DLLs already exist and we're not forcing reinstall
     $allDllsExist = Check-AllDllsExist
     if ($allDllsExist -and -not $Force) {
         Write-Host "All SQLite assemblies are already installed. Use -Force to reinstall." -ForegroundColor Green
-        Write-Host "Installation directory: $installFolder"
+        Write-Host "Installation directory: $InstallPath"
         exit 0
     }
     
