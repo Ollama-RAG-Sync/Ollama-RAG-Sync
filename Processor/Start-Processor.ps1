@@ -18,8 +18,8 @@ param(
     [Parameter(Mandatory=$false)]
     [string]$ApiPath = "/api",
     
-    [Parameter(Mandatory=$false)]
-    [string]$DatabasePath,
+    [Parameter(Mandatory=$true)]
+    [string]$InstallPath,
     
     [Parameter(Mandatory=$false)]
     [string]$OllamaUrl = "http://localhost:11434",
@@ -40,17 +40,29 @@ param(
     [string]$HandlerScript,
     
     [Parameter(Mandatory=$false)]
-    [hashtable]$HandlerScriptParams = @{},
-    
-    [Parameter(Mandatory=$false)]
-    [switch]$Verbose = $false
+    [hashtable]$HandlerScriptParams = @{}
 )
-
+$DatabasePath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
 # Import required modules
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $parentPath = Split-Path -Parent $scriptPath
 $databaseSharedModule = Join-Path -Path $parentPath -ChildPath "FileTracker\Database-Shared.psm1"
+# Check if SQLite assemblies exist
+$sqliteAssemblyPath = "$InstallPath\Microsoft.Data.Sqlite.dll"
+$sqliteAssemblyPath2 = "$InstallPath\SQLitePCLRaw.core.dll"
+$sqliteAssemblyPath3 = "$InstallPath\SQLitePCLRaw.provider.e_sqlite3.dll"
 
+# Load SQLite assembly
+try {
+    Add-Type -Path $sqliteAssemblyPath
+    Add-Type -Path $sqliteAssemblyPath2
+    Add-Type -Path $sqliteAssemblyPath3
+}
+catch {
+    Write-Error "Error loading SQLite assemblies: $_"
+    Write-Host "Please make sure you've run Install-FileTracker.ps1 first." -ForegroundColor Red
+    exit 1
+}
 # Import FileTracker's shared database module
 Import-Module $databaseSharedModule -Force
 
@@ -104,7 +116,7 @@ $WriteLogBlock = {
         [string]$Level = "INFO"
     )
     
-    Write-Log -Message $Message -Level $Level -LogFilePath $logFilePath -Verbose $Verbose
+    Write-Log -Message $Message -Level $Level -LogFilePath $logFilePath 
 }
 
 # Initialize the database

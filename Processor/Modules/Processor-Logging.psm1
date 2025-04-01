@@ -10,10 +10,7 @@ function Write-Log {
         [string]$Level = "INFO",
         
         [Parameter(Mandatory=$false)]
-        [string]$LogFilePath,
-        
-        [Parameter(Mandatory=$false)]
-        [bool]$Verbose = $false
+        [string]$LogFilePath
     )
     
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -25,9 +22,6 @@ function Write-Log {
     }
     elseif ($Level -eq "WARNING") {
         Write-Host $logMessage -ForegroundColor Yellow
-    }
-    elseif ($Verbose -or $Level -eq "INFO") {
-        Write-Host $logMessage -ForegroundColor Green
     }
     
     # Write to log file if path provided
