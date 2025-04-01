@@ -116,6 +116,9 @@ param (
     [switch]$ContextOnlyMode
 )
 
+
+.\Clear-PortRegistrations.ps1 -Ports $FileTrackerPort, $ProcessorPort, $VectorsPort, $ApiProxyPort
+
 # Function to log messages with timestamp and color-coding
 function Write-Log {
     param (
@@ -200,7 +203,7 @@ try {
         & $scriptPath -InstallPath $installPath -OmitFolders $omitFolders -Port $port
     }
     
-    $fileTrackerJob = Start-Job -ScriptBlock $fileTrackerJobScript -ArgumentList $fileTrackerScript, $DirectoryPath, @('.ai', '.git', 'node_modules'), $FileTrackerPort
+    $fileTrackerJob = Start-Job -ScriptBlock $fileTrackerJobScript -ArgumentList $fileTrackerScript, $InstallPath, @('.git'), $FileTrackerPort
     
     # Wait a moment for the FileTracker to start
     Start-Sleep -Seconds 2

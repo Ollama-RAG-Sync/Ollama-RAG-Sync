@@ -12,6 +12,39 @@ param (
     [string]$ApiPath = "/api"
 )
 
+$logFilePath = Join-Path -Path $InstallPath -ChildPath "FileTracker.txt"
+
+function Write-Log {
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$Message,
+
+        [Parameter(Mandatory=$false)]
+        [string]$ForegroundColor,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$Level = "INFO"
+    )
+    
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logMessage = "[$timestamp] [$Level] $Message"
+    
+    # Write to console with appropriate color
+    if ($Level -eq "ERROR") {
+        Write-Host $logMessage -ForegroundColor Red
+    }
+    elseif ($Level -eq "WARNING") {
+        Write-Host $logMessage -ForegroundColor Yellow
+    }
+    else {
+        Write-Host $logMessage -ForegroundColor Green
+    }
+    
+    # Write to log file
+    Add-Content -Path $logFilePath -Value $logMessage
+}
+
+
 # Compute DatabasePath from InstallationPath
 $DatabasePath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
 
@@ -765,41 +798,41 @@ $cancelToken = $cancelSource.Token
 # Start the HTTP listener
 try {
     $listener.Start()
-    Write-Host "FileTracker REST API server started at $prefix" -ForegroundColor Green
-    Write-Host "Installation directory: $InstallationPath" -ForegroundColor Green
-    Write-Host "Using database: $DatabasePath" -ForegroundColor Cyan
-    Write-Host "Press Ctrl+C to stop the server" -ForegroundColor Yellow
+    Write-Log "FileTracker REST API server started at $prefix" -ForegroundColor Green
+    Write-Log "Installation directory: $InstallationPath" -ForegroundColor Green
+    Write-Log "Using database: $DatabasePath" -ForegroundColor Cyan
+    Write-Log "Press Ctrl+C to stop the server" -ForegroundColor Yellow
     
     # Available endpoints
-    Write-Host ""
-    Write-Host "Available API Endpoints:" -ForegroundColor Cyan
-    Write-Host "Collection Management:" -ForegroundColor White
-    Write-Host "  GET  $prefix/collections              - Get all collections" -ForegroundColor White
-    Write-Host "  POST $prefix/collections              - Create a new collection" -ForegroundColor White
-    Write-Host "    Payload: { 'name': 'Collection Name', 'description': 'Optional description', 'source_folder': 'Optional path' }" -ForegroundColor Gray
-    Write-Host "  GET  $prefix/collections/{id}         - Get a specific collection" -ForegroundColor White
-    Write-Host "  PUT  $prefix/collections/{id}         - Update a collection" -ForegroundColor White
-    Write-Host "    Payload: { 'name': 'New Name', 'description': 'New description' }" -ForegroundColor Gray
-    Write-Host "  DELETE $prefix/collections/{id}       - Delete a collection" -ForegroundColor White
+    Write-Log "=="
+    Write-Log "Available API Endpoints:" 
+    Write-Log "Collection Management:"
+    Write-Log "  GET  $prefix/collections              - Get all collections" -ForegroundColor White
+    Write-Log "  POST $prefix/collections              - Create a new collection" -ForegroundColor White
+    Write-Log "    Payload: { 'name': 'Collection Name', 'description': 'Optional description', 'source_folder': 'Optional path' }" -ForegroundColor Gray
+    Write-Log "  GET  $prefix/collections/{id}         - Get a specific collection" -ForegroundColor White
+    Write-Log "  PUT  $prefix/collections/{id}         - Update a collection" -ForegroundColor White
+    Write-Log "    Payload: { 'name': 'New Name', 'description': 'New description' }" -ForegroundColor Gray
+    Write-Log "  DELETE $prefix/collections/{id}       - Delete a collection" -ForegroundColor White
     
-    Write-Host "Collection Files Management:" -ForegroundColor White
-    Write-Host "  GET  $prefix/collections/{id}/settings - Get collection settings and watch status" -ForegroundColor White
-    Write-Host "  POST $prefix/collections/{id}/watch   - Start or stop live file watching" -ForegroundColor White
-    Write-Host "    Payload: { 'action': 'start|stop', 'fileFilter': '*.*', 'watchCreated': true, 'watchModified': true, 'watchDeleted': true, 'watchRenamed': true, 'includeSubdirectories': true, 'processInterval': 15, 'omitFolders': ['folder1'] }" -ForegroundColor Gray
-    Write-Host "  GET  $prefix/collections/{id}/files   - Get files in a collection" -ForegroundColor White
-    Write-Host "  POST $prefix/collections/{id}/files   - Add a file to a collection" -ForegroundColor White
-    Write-Host "    Payload: { 'filePath': 'path/to/file', 'originalUrl': 'http://source.com/file', 'dirty': true|false }" -ForegroundColor Gray
-    Write-Host "  PUT  $prefix/collections/{id}/files   - Mark all files in collection as dirty/processed" -ForegroundColor White
-    Write-Host "    Payload: { 'dirty': true|false }" -ForegroundColor Gray
-    Write-Host "  DELETE $prefix/collections/{id}/files/{fileId} - Remove a file from a collection" -ForegroundColor White
-    Write-Host "  PUT  $prefix/collections/{id}/files/{fileId} - Update a file's status" -ForegroundColor White
-    Write-Host "    Payload: { 'dirty': true|false }" -ForegroundColor Gray
-    Write-Host "  POST $prefix/collections/{id}/update  - Scan folder for changes and update collection" -ForegroundColor White
-    Write-Host "    Payload (optional): { 'omitFolders': ['folder1', 'folder2'] }" -ForegroundColor Gray
+    Write-Log "Collection Files Management:" -ForegroundColor White
+    Write-Log "  GET  $prefix/collections/{id}/settings - Get collection settings and watch status" -ForegroundColor White
+    Write-Log "  POST $prefix/collections/{id}/watch   - Start or stop live file watching" -ForegroundColor White
+    Write-Log "    Payload: { 'action': 'start|stop', 'fileFilter': '*.*', 'watchCreated': true, 'watchModified': true, 'watchDeleted': true, 'watchRenamed': true, 'includeSubdirectories': true, 'processInterval': 15, 'omitFolders': ['folder1'] }" -ForegroundColor Gray
+    Write-Log "  GET  $prefix/collections/{id}/files   - Get files in a collection" -ForegroundColor White
+    Write-Log "  POST $prefix/collections/{id}/files   - Add a file to a collection" -ForegroundColor White
+    Write-Log "    Payload: { 'filePath': 'path/to/file', 'originalUrl': 'http://source.com/file', 'dirty': true|false }" -ForegroundColor Gray
+    Write-Log "  PUT  $prefix/collections/{id}/files   - Mark all files in collection as dirty/processed" -ForegroundColor White
+    Write-Log "    Payload: { 'dirty': true|false }" -ForegroundColor Gray
+    Write-Log "  DELETE $prefix/collections/{id}/files/{fileId} - Remove a file from a collection" -ForegroundColor White
+    Write-Log "  PUT  $prefix/collections/{id}/files/{fileId} - Update a file's status" -ForegroundColor White
+    Write-Log "    Payload: { 'dirty': true|false }" -ForegroundColor Gray
+    Write-Log "  POST $prefix/collections/{id}/update  - Scan folder for changes and update collection" -ForegroundColor White
+    Write-Log "    Payload (optional): { 'omitFolders': ['folder1', 'folder2'] }" -ForegroundColor Gray
     
-    Write-Host "Common Endpoints:" -ForegroundColor White
-    Write-Host "  GET  $prefix/status                   - Get overall tracking status" -ForegroundColor White
-    Write-Host ""
+    Write-Log "Common Endpoints:" -ForegroundColor White
+    Write-Log "  GET  $prefix/status                   - Get overall tracking status" -ForegroundColor White
+    Write-Log "=="
     
     # Handle incoming requests
     while ($listener.IsListening -and -not $cancelToken.IsCancellationRequested) {
@@ -830,7 +863,7 @@ finally {
     # Clean up resources
     if ($listener.IsListening) {
         $listener.Stop()
-        Write-Host "HTTP listener stopped." -ForegroundColor Green
+        Write-Log "HTTP listener stopped." -ForegroundColor Green
     }
     
     # Dispose cancellation token source
@@ -841,5 +874,5 @@ finally {
         $handler.Dispose()
     }
     
-    Write-Host "FileTracker REST API server shutdown complete." -ForegroundColor Green
+    Write-Log "FileTracker REST API server shutdown complete." -ForegroundColor Green
 }
