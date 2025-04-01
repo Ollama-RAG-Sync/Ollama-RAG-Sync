@@ -57,9 +57,9 @@ $databaseSharedPath = Join-Path -Path $scriptParentPath -ChildPath "Database-Sha
 Import-Module -Name $databaseSharedPath -Force
 
 $DatabasePath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
-$sqliteAssemblyPath = "$InstallPath\libs\Microsoft.Data.Sqlite.dll"
-$sqliteAssemblyPath2 = "$InstallPath\libs\SQLitePCLRaw.core.dll"
-$sqliteAssemblyPath3 = "$InstallPath\libs\SQLitePCLRaw.provider.e_sqlite3.dll"
+$sqliteAssemblyPath = "$InstallPath\Microsoft.Data.Sqlite.dll"
+$sqliteAssemblyPath2 = "$InstallPath\SQLitePCLRaw.core.dll"
+$sqliteAssemblyPath3 = "$InstallPath\SQLitePCLRaw.provider.e_sqlite3.dll"
 
 # Load SQLite assembly
 Add-Type -Path $sqliteAssemblyPath

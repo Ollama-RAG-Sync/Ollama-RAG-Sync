@@ -36,22 +36,6 @@ $sqliteAssemblyPath = "$InstallPath\Microsoft.Data.Sqlite.dll"
 $sqliteAssemblyPath2 = "$InstallPath\SQLitePCLRaw.core.dll"
 $sqliteAssemblyPath3 = "$InstallPath\SQLitePCLRaw.provider.e_sqlite3.dll"
 
-# Check if we need to copy SQLite assemblies
-if (-not (Test-Path -Path $sqliteAssemblyPath)) {
-    if (Test-Path -Path $sourceLibsDir) {
-        # Copy SQLite DLLs from the source directory
-        Copy-Item -Path "$InstallPath\Microsoft.Data.Sqlite.dll" -Destination $sqliteAssemblyPath -Force
-        Copy-Item -Path "$InstallPath\SQLitePCLRaw.core.dll" -Destination $sqliteAssemblyPath2 -Force
-        Copy-Item -Path "$InstallPath\SQLitePCLRaw.provider.e_sqlite3.dll" -Destination $sqliteAssemblyPath3 -Force
-        
-        Write-Host "Copied SQLite assemblies to $libsDir" -ForegroundColor Green
-    }
-    else {
-        Write-Error "SQLite assemblies not found. Please install them first using Install-FileTracker.ps1"
-        exit 1
-    }
-}
-
 # Load SQLite assembly
 try {
     Add-Type -Path $sqliteAssemblyPath

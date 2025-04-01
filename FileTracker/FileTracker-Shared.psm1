@@ -52,9 +52,9 @@ function Update-FileProcessingStatus {
         return $false
     }
 
-    $sqliteAssemblyPath = "$FolderPath\libs\Microsoft.Data.Sqlite.dll"
-    $sqliteAssemblyPath2 = "$FolderPah\libs\SQLitePCLRaw.core.dll"
-    $sqliteAssemblyPath3 = "$FolderPath\libs\SQLitePCLRaw.provider.e_sqlite3.dll"
+    $sqliteAssemblyPath = "$FolderPath\Microsoft.Data.Sqlite.dll"
+    $sqliteAssemblyPath2 = "$FolderPah\SQLitePCLRaw.core.dll"
+    $sqliteAssemblyPath3 = "$FolderPath\SQLitePCLRaw.provider.e_sqlite3.dll"
 
     # Load SQLite assembly
     Add-Type -Path $sqliteAssemblyPath

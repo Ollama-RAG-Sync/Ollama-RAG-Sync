@@ -3,7 +3,6 @@
     Downloads and installs the SQLite assemblies for use with PowerShell.
 .DESCRIPTION
     This script downloads the required NuGet packages for SQLite, extracts them, and copies
-    the necessary DLLs to the specified installation directory under a .ai/libs folder.
     
     Packages installed:
     - Microsoft.Data.Sqlite.Core
@@ -11,7 +10,7 @@
     - SQLitePCLRaw.provider.e_sqlite3
     - SQLitePCLRaw.lib.e_sqlite3
 .PARAMETER FolderPath
-    The base folder where the .ai/libs directories will be created and assemblies installed.
+    The base folder where  assemblies installed.
 .PARAMETER Force
     If specified, forces the installation by closing handles to any DLLs that might be in use.
 .EXAMPLE
@@ -57,7 +56,6 @@ $packages = @(
 )
 
 # Setup paths
-$libs = Join-Path -Path $InstallPath -ChildPath "libs"
 $tempFolder = Join-Path -Path $InstallPath -ChildPath "temp"
 $handleExe = Join-Path -Path $InstallPath -ChildPath "handle.exe"
 
@@ -76,24 +74,6 @@ function Allow-FileWrite {
     & attrib.exe -R $Dir /S /D
 }
 
-function Initialize-Directories {
-    param (
-        [string]$LibsDir
-    )
-    
-    # Create libs folder if it doesn't exist
-    if (-not (Test-Path -Path $LibsDir)) {
-        try {
-            New-Item -Path $LibsDir -ItemType Directory -ErrorAction Stop
-            Allow-FileWrite -Dir $LibsDir
-            Write-Host "Created libs folder at $LibsDir" -ForegroundColor Yellow
-        }
-        catch {
-            Write-Error "Failed to create directory $LibsDir : $_"
-            exit 1
-        }
-    }
-}
 
 function Download-HandleExe {
     param (
@@ -356,9 +336,6 @@ function Check-AllDllsExist {
 
 # Main execution
 try {
-    # Create required directories
-    Initialize-Directories -LibsDir $InstallPath
-    
     # Check if all DLLs already exist and we're not forcing reinstall
     $allDllsExist = Check-AllDllsExist
     if ($allDllsExist -and -not $Force) {

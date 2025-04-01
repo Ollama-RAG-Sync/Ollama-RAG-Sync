@@ -76,9 +76,9 @@ $sharedModulePath = Join-Path -Path $scriptParentPath -ChildPath "FileTracker-Sh
 Import-Module -Name $sharedModulePath -Force
 
 # Add type for SQLite handling - based on Initialize-FileProcessingTracker.ps1
-$sqliteAssemblyPath = Join-Path -Path $DirectoryToWatch -ChildPath ".ai\libs\Microsoft.Data.Sqlite.dll"
-$sqliteAssemblyPath2 = Join-Path -Path $DirectoryToWatch -ChildPath ".ai\libs\SQLitePCLRaw.core.dll"
-$sqliteAssemblyPath3 = Join-Path -Path $DirectoryToWatch -ChildPath ".ai\libs\SQLitePCLRaw.provider.e_sqlite3.dll"
+$sqliteAssemblyPath = Join-Path -Path $InstallPath -ChildPath "Microsoft.Data.Sqlite.dll"
+$sqliteAssemblyPath2 = Join-Path -Path $InstallPath -ChildPath "SQLitePCLRaw.core.dll"
+$sqliteAssemblyPath3 = Join-Path -Path $InstallPath -ChildPath "SQLitePCLRaw.provider.e_sqlite3.dll"
 
 try {
     # Load SQLite assemblies
@@ -88,7 +88,6 @@ try {
 }
 catch {
     Write-Error "Failed to load SQLite assemblies: $_"
-    Write-Error "Make sure SQLite assemblies are installed in '$DirectoryToWatch\.ai\libs\'."
     exit 1
 }
 

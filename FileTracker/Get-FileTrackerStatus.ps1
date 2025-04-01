@@ -18,9 +18,9 @@ param (
 Import-Module -Name "$PSScriptRoot\FileTracker-Shared.psm1" -Force
 Import-Module -Name "$PSScriptRoot\Database-Shared.psm1" -Force
 
-$sqliteAssemblyPath = "$InstallPath\libs\Microsoft.Data.Sqlite.dll"
-$sqliteAssemblyPath2 = "$InstallPath\libs\SQLitePCLRaw.core.dll"
-$sqliteAssemblyPath3 = "$InstallPath\libs\SQLitePCLRaw.provider.e_sqlite3.dll"
+$sqliteAssemblyPath = "$InstallPath\Microsoft.Data.Sqlite.dll"
+$sqliteAssemblyPath2 = "$InstallPath\SQLitePCLRaw.core.dll"
+$sqliteAssemblyPath3 = "$InstallPath\SQLitePCLRaw.provider.e_sqlite3.dll"
 
 # Load SQLite assembly
 Add-Type -Path $sqliteAssemblyPath -Verbose
