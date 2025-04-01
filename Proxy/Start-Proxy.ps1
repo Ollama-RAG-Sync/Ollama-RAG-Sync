@@ -14,7 +14,7 @@ param (
     [int]$Port = 8081,
     
     [Parameter(Mandatory=$true)]
-    [string]$DirectoryPath,
+    [string]$InstallPath,
     
     [Parameter(Mandatory=$false)]
     [string]$OllamaBaseUrl = "http://localhost:11434",
@@ -48,9 +48,8 @@ param (
 )
 
 # Set up logging
-$aiFolder = Join-Path -Path $DirectoryPath -ChildPath ".ai"
-$vectorDbPath = Join-Path -Path $aiFolder -ChildPath "Vectors"
-$LogPath = Join-Path -Path $aiFolder -ChildPath "temp\RAGProxy.log"
+$vectorDbPath = Join-Path -Path $InstallPath -ChildPath "Vectors"
+$LogPath = Join-Path -Path $InstallPath -ChildPath "RAGProxy.log"
 
 function Close-ProcessOnPort {
     $connection = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue

@@ -147,8 +147,8 @@ function Add-DocumentToVectors {
         # Get file type
         $contentType = Get-FileContentType -FilePath $filePath
         
-        # Base request data
-        $requestData = @{
+        # Prepare request body for Vectors REST API
+        $requestBody = @{
             filePath = $filePath
             fileId = $fileId
             chunkSize = $ChunkSize
@@ -156,20 +156,23 @@ function Add-DocumentToVectors {
             contentType = $contentType
         }
         
-        # Call the Vectors API to add the document
-        $response = Invoke-VectorsRestAPI -Endpoint "documents" -Method "POST" -Body $requestData
+        # Call the Vectors REST API directly
+        & $WriteLog "Calling Vectors REST API to add document: $filePath" -Level "INFO"
+        $uri = "$VectorsApiUrl/documents"
         
-        if ($response -and $response.success) {
-            & $WriteLog "Successfully added document to Vectors: $filePath" -Level "INFO"
+        $response = Invoke-RestMethod -Uri $uri -Method Post -Body ($requestBody | ConvertTo-Json) -ContentType "application/json" -ErrorAction Stop
+        
+        if ($response.success) {
+            & $WriteLog "Successfully added document to Vectors via REST API: $filePath" -Level "INFO"
             return $true
         }
         else {
-            & $WriteLog "Failed to add document to Vectors: $filePath. Response: $($response | ConvertTo-Json -Depth 1)" -Level "ERROR"
+            & $WriteLog "Vectors REST API returned error: $($response.error). Response: $($response | ConvertTo-Json -Depth 1)" -Level "ERROR"
             return $false
         }
     }
     catch {
-        & $WriteLog "Error adding document to Vectors: $_" -Level "ERROR"
+        & $WriteLog "Error calling Vectors REST API: $_" -Level "ERROR"
         return $false
     }
 }

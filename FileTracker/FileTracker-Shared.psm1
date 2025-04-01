@@ -39,13 +39,6 @@ function Update-FileProcessingStatus {
     $oldStatus = [int](-not $Dirty)
     $actionText = if ($Dirty) { "as dirty (to process)" } else { "as processed" }
     
-    # If DatabasePath is not provided but FolderPath is, compute the DatabasePath
-    if (-not $DatabasePath -and $FolderPath) {
-        $aiFolder = Join-Path -Path $FolderPath -ChildPath ".ai"
-        $DatabasePath = Join-Path -Path $aiFolder -ChildPath "FileTracker.db"
-        Write-Host "Using computed DatabasePath: $DatabasePath" -ForegroundColor Cyan
-    }
-
     # Validate that we have a DatabasePath
     if (-not $DatabasePath) {
         Write-Error "Either DatabasePath or FolderPath must be specified."
