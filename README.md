@@ -41,6 +41,7 @@ The system is organized into several components:
 
 - Windows environment with PowerShell 7.0 or later
 - [Ollama](https://ollama.ai/) installed and running locally
+   - mxbai-embed-large:latest embedding model
 - Python 3.8+ with pip
 
 ### Setup
