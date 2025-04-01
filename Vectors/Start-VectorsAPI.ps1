@@ -28,7 +28,10 @@ param (
     [int]$DefaultChunkOverlap = 200,
     
     [Parameter(Mandatory=$false)]
-    [switch]$UseHttps
+    [switch]$UseHttps,
+
+    [Parameter(Mandatory=$true)]
+    [string]$InstallPath
 )
 
 # Determine script path and import modules
@@ -37,14 +40,9 @@ $modulesPath = Join-Path -Path $scriptPath -ChildPath "Modules"
 $functionsPath = Join-Path -Path $scriptPath -ChildPath "Functions"
 
 # Set up logging
-$appDataDir = Join-Path -Path $env:APPDATA -ChildPath "FileTracker"
-$TempDir = Join-Path -Path $appDataDir -ChildPath "temp"
-if (-not (Test-Path -Path $TempDir)) {
-    New-Item -Path $TempDir -ItemType Directory -Force | Out-Null
-}
 $logDate = Get-Date -Format "yyyy-MM-dd"
 $logFileName = "VectorsAPI_$logDate.log"
-$logFilePath = Join-Path -Path $TempDir -ChildPath $logFileName
+$logFilePath = Join-Path -Path $InstallPath -ChildPath $logFileName
 
 function Write-Log {
     param (

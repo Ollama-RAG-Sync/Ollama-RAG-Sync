@@ -153,14 +153,7 @@ if (-not (Test-Path -Path $fileTrackerDbPath)) {
 # Start Vectors subsystem
 Write-Log "Starting Vectors subsystem..." -Level "INFO"
 try {
-    $vectorsScript = Join-Path -Path $scriptDirectory -ChildPath "Vectors\Start-Vectors.ps1"
     $vectorsAPIScript = Join-Path -Path $scriptDirectory -ChildPath "Vectors\Start-VectorsAPI.ps1"
-    
-    # Verify scripts exist
-    if (-not (Test-Path -Path $vectorsScript)) {
-        Write-Log "Start-Vectors.ps1 script not found at: $vectorsScript" -Level "ERROR"
-        exit 1
-    }
     
     if (-not (Test-Path -Path $vectorsAPIScript)) {
         Write-Log "Start-VectorsAPI.ps1 script not found at: $vectorsAPIScript" -Level "ERROR"
@@ -169,11 +162,11 @@ try {
     
     # Start Vectors API as a background job
     $vectorsAPIJobScript = {
-        param($scriptPath, $chromaDbPath, $ollamaUrl, $embeddingModel, $chunkSize, $chunkOverlap, $apiPort)
-        & $scriptPath -ChromaDbPath $chromaDbPath -OllamaUrl $ollamaUrl -EmbeddingModel $embeddingModel -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -Port $apiPort
+        param($installPath, $scriptPath, $chromaDbPath, $ollamaUrl, $embeddingModel, $chunkSize, $chunkOverlap, $apiPort)
+        & $scriptPath -InstallPath $installPath -ChromaDbPath $chromaDbPath -OllamaUrl $ollamaUrl -EmbeddingModel $embeddingModel -DefaultChunkSize $chunkSize -DefaultChunkOverlap $chunkOverlap -Port $apiPort
     }
     
-    $vectorsAPIJob = Start-Job -ScriptBlock $vectorsAPIJobScript -ArgumentList $vectorsAPIScript, $vectorDbPath, $OllamaUrl, $EmbeddingModel, $ChunkSize, $ChunkOverlap, $VectorsPort
+    $vectorsAPIJob = Start-Job -ScriptBlock $vectorsAPIJobScript -ArgumentList $InstallPath, $vectorsAPIScript, $vectorDbPath, $OllamaUrl, $EmbeddingModel, $ChunkSize, $ChunkOverlap, $VectorsPort
     
     # Wait a moment for the API to start
     Start-Sleep -Seconds 2
@@ -287,15 +280,16 @@ try {
         Write-Log "Start-Proxy.ps1 script not found at: $proxyScript" -Level "ERROR"
         exit 1
     }
-    
     # Create proxy job
     $proxyJobScript = {
-        param($scriptPath, $listenAddress, $port, $directoryPath, $ollamaUrl, $vectorsApiUrl, $embeddingModel, $relevanceThreshold, $maxContextDocs, $contextOnlyMode)
-        & $scriptPath -ListenAddress $listenAddress -Port $port -DirectoryPath $directoryPath -OllamaBaseUrl $ollamaUrl -VectorsApiUrl $vectorsApiUrl -EmbeddingModel $embeddingModel -RelevanceThreshold $relevanceThreshold -MaxContextDocs $maxContextDocs -ContextOnlyMode:$contextOnlyMode
+        param($scriptPath, $listenAddress, $port, $installPath, $ollamaUrl, $vectorsApiUrl, $embeddingModel, $relevanceThreshold, $maxContextDocs, $contextOnlyMode)
+        
+        & $scriptPath -ListenAddress $listenAddress -Port $port -InstallPath $installPath -OllamaBaseUrl $ollamaUrl -VectorsApiUrl $vectorsApiUrl -EmbeddingModel $embeddingModel -RelevanceThreshold $relevanceThreshold -MaxContextDocs $maxContextDocs -ContextOnlyMode:$contextOnlyMode
     }
     
-    $vectorsApiUrl = "http://localhost:$VectorsPort/"
-    $apiProxyJob = Start-Job -ScriptBlock $proxyJobScript -ArgumentList $proxyScript, "localhost", $ApiProxyPort, $DirectoryPath, $OllamaUrl, $vectorsApiUrl, $EmbeddingModel, $RelevanceThreshold, $MaxContextDocs, $ContextOnlyMode
+    $vectorsApiUrl = "http://localhost:$VectorsPort"
+
+    $apiProxyJob = Start-Job -ScriptBlock $proxyJobScript -ArgumentList $proxyScript, "localhost", $ApiProxyPort, $InstallPath, $OllamaUrl, $vectorsApiUrl, $EmbeddingModel, $RelevanceThreshold, $MaxContextDocs, $ContextOnlyMode
     
     Write-Log "API proxy server started successfully (Job ID: $($apiProxyJob.Id))" -Level "INFO"
     Write-Log "API will be available at: http://localhost:$ApiProxyPort/" -Level "INFO"
