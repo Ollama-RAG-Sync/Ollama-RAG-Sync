@@ -42,12 +42,7 @@ Import-Module "$modulesPath\Processor-Logging.psm1" -Force
 # Initialize log file
 $logDate = Get-Date -Format "yyyy-MM-dd"
 $logFileName = "SynchronizeCollection_${CollectionName}_$logDate.log"
-$appDataDir = Join-Path -Path $env:APPDATA -ChildPath "FileTracker"
-$TempDir = Join-Path -Path $appDataDir -ChildPath "temp"
-if (-not (Test-Path -Path $TempDir)) {
-    New-Item -Path $TempDir -ItemType Directory -Force | Out-Null
-}
-$logFilePath = Join-Path -Path $TempDir -ChildPath $logFileName
+$logFilePath = Join-Path -Path $InstallPath -ChildPath $logFileName
 
 # Define WriteLog script block for passing to module functions
 $WriteLog = {
