@@ -24,7 +24,7 @@ function Get-Collections {
         }
     }
     catch {
-        & $WriteLog "Error calling FileTracker API to get collections: $_" -Level "ERROR"
+        & $WriteLog "Error calling FileTracker API $uri to get collections: $_" -Level "ERROR"
         return $null
     }
 }

@@ -100,13 +100,13 @@ param (
     [Parameter(Mandatory = $false)]
     [int]$ChunkOverlap = 200,
     [Parameter(Mandatory = $false)]
-    [int]$FileTrackerPort = 10080,
+    [int]$FileTrackerPort = 11090,
     [Parameter(Mandatory = $false)]
-    [int]$ProcessorPort = 10083,
+    [int]$ProcessorPort = 11093,
     [Parameter(Mandatory = $false)]
-    [int]$VectorsPort = 10082,
+    [int]$VectorsPort = 11092,
     [Parameter(Mandatory = $false)]
-    [int]$ApiProxyPort = 10081,
+    [int]$ApiProxyPort = 11091,
     [Parameter(Mandatory = $false)]
     [int]$MaxContextDocs = 5,
 

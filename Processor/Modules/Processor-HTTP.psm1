@@ -671,11 +671,32 @@ function Start-ProcessorHttpServer {
         throw $_
     }
     finally {
-        if ($listener -and $listener.IsListening) {
-            $listener.Stop()
-            $listener.Close()
-            & $WriteLog "HTTP server stopped." -Level "WARNING"
+        # --- Cleanup ---
+        $context.Response.Close()
+        
+        # This block ALWAYS executes, even on Ctrl+C or errors
+        Write-Host "Executing finally block for cleanup..."
+
+        # Check if the listener object was successfully created and is still running
+        if ($listener -ne $null) {
+             Write-Host "Listener object exists."
+            if ($listener.IsListening) {
+                Write-Host "Listener is listening. Stopping listener..."
+                # Stop the listener from accepting new connections
+                $listener.Stop()
+                Write-Host "Listener stopped."
+            } else {
+                Write-Host "Listener was not listening (or already stopped)."
+            }
+            # Close and release resources (calls Stop() implicitly if still listening, then Dispose())
+            Write-Host "Closing/Disposing listener..."
+            $listener.Close() # Close calls Dispose()
+            Write-Host "Listener closed and disposed."
+        } else {
+            Write-Host "Listener object was not created or was null."
         }
+
+        Write-Host "Cleanup finished."
     }
 }
 

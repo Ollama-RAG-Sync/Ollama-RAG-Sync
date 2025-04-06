@@ -959,17 +959,36 @@ Write-ApiLog -Message "Press Ctrl+C to stop the server" -Level "INFO"
                 }
             }
         }
+        
     }
 }
 catch {
     Write-ApiLog -Message "Fatal error in API proxy server: $_" -Level "ERROR"
 }
 finally {
-    # Clean up
-    if ($null -ne $listener -and $listener.IsListening) {
-        $listener.Stop()
-        $listener.Close()
+    $context.Response.Close()
+    # --- Cleanup ---
+    # This block ALWAYS executes, even on Ctrl+C or errors
+    Write-Host "Executing finally block for cleanup..."
+
+    # Check if the listener object was successfully created and is still running
+    if ($listener -ne $null) {
+         Write-Host "Listener object exists."
+        if ($listener.IsListening) {
+            Write-Host "Listener is listening. Stopping listener..."
+            # Stop the listener from accepting new connections
+            $listener.Stop()
+            Write-Host "Listener stopped."
+        } else {
+            Write-Host "Listener was not listening (or already stopped)."
+        }
+        # Close and release resources (calls Stop() implicitly if still listening, then Dispose())
+        Write-Host "Closing/Disposing listener..."
+        $listener.Close() # Close calls Dispose()
+        Write-Host "Listener closed and disposed."
+    } else {
+        Write-Host "Listener object was not created or was null."
     }
-    
-    Write-ApiLog -Message "API proxy server stopped" -Level "INFO"
+
+    Write-Host "Cleanup finished."
 }

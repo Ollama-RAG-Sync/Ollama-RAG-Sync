@@ -796,13 +796,6 @@ function Process-Request {
     }
 }
 
-# Set up cancellation token for graceful termination
-$cancelSource = New-Object System.Threading.CancellationTokenSource
-$cancelToken = $cancelSource.Token
-
-# Handle CTRL+C
-[Console]::TreatControlCAsInput = $false
-
 # Start the HTTP listener
 try {
     $listener.Start()
@@ -871,16 +864,8 @@ finally {
     # Clean up resources
     if ($listener.IsListening) {
         $listener.Stop()
+        $listener.Close() # Close calls Dispose()
         Write-Log "HTTP listener stopped." -ForegroundColor Green
     }
-    
-    # Dispose cancellation token source
-    $cancelSource.Dispose()
-    
-    # Unsubscribe from event handler
-    if ($handler) {
-        $handler.Dispose()
-    }
-    
-    Write-Log "FileTracker REST API server shutdown complete." -ForegroundColor Green
+     Write-Log "FileTracker REST API server shutdown complete." -ForegroundColor Green
 }
