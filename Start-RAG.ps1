@@ -100,13 +100,13 @@ param (
     [Parameter(Mandatory = $false)]
     [int]$ChunkOverlap = 200,
     [Parameter(Mandatory = $false)]
-    [int]$FileTrackerPort = 8080,
+    [int]$FileTrackerPort = 10080,
     [Parameter(Mandatory = $false)]
-    [int]$ProcessorPort = 8083,
+    [int]$ProcessorPort = 10083,
     [Parameter(Mandatory = $false)]
-    [int]$VectorsPort = 8082,
+    [int]$VectorsPort = 10082,
     [Parameter(Mandatory = $false)]
-    [int]$ApiProxyPort = 8081,
+    [int]$ApiProxyPort = 10081,
     [Parameter(Mandatory = $false)]
     [int]$MaxContextDocs = 5,
 
@@ -117,7 +117,7 @@ param (
 )
 
 
-.\Clear-PortRegistrations.ps1 -Ports $FileTrackerPort, $ProcessorPort, $VectorsPort, $ApiProxyPort
+.\Tools\Clear-PortRegistrations.ps1 -Ports $FileTrackerPort, $ProcessorPort, $VectorsPort, $ApiProxyPort
 
 # Function to log messages with timestamp and color-coding
 function Write-Log {
@@ -252,11 +252,17 @@ try {
     
     # Create processor API job
     $processorJobScript = {
-        param($scriptPath, $fileTrackerApiUrl, $ollamaUrl, $embeddingModel, $chunkSize, $chunkOverlap, $port)
-        & $scriptPath -FileTrackerUrl $fileTrackerApiUrl -OllamaUrl $ollamaUrl -EmbeddingModel $embeddingModel -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -UseChunking $true -Port $port
+        param($scriptPath, $fileTrackerApiUrl, $ollamaUrl, $embeddingModel, $chunkSize, $chunkOverlap, $port, $installPath)
+        try
+        {
+            & $scriptPath -FileTrackerUrl $fileTrackerApiUrl -InstallPath $installPath -OllamaUrl $ollamaUrl -EmbeddingModel $embeddingModel -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -UseChunking $true -Port $port
+        }
+        catch {
+            Write-Log "Error starting Processor API: $_" -Level "ERROR"
+            exit 1
+        }
     }
-    
-    $processorJob = Start-Job -ScriptBlock $processorJobScript -ArgumentList $processorScript, $fileTrackerApiUrl, $OllamaUrl, $EmbeddingModel, $ChunkSize, $ChunkOverlap, $ProcessorPort
+    $processorJob = Start-Job -ScriptBlock $processorJobScript -ArgumentList $processorScript, $fileTrackerApiUrl, $OllamaUrl, $EmbeddingModel, $ChunkSize, $ChunkOverlap, $ProcessorPort,$InstallPath
     
     # Wait a moment for the Processor API to start
     Start-Sleep -Seconds 2

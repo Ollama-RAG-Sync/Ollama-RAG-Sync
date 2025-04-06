@@ -5,14 +5,22 @@ param (
     [Parameter(Mandatory=$false)]
     [string[]]$OmitFolders = @('.git', 'node_modules', 'bin', 'obj'),
     
-    [Parameter(Mandatory=$false)]
-    [int]$Port = 8080,
+    [Parameter(Mandatory=$true)]
+    [int]$Port,
     
     [Parameter(Mandatory=$false)]
     [string]$ApiPath = "/api"
 )
 
-$logFilePath = Join-Path -Path $InstallPath -ChildPath "FileTracker.txt"
+$TempDir = Join-Path -Path $InstallPath -ChildPath "Temp"
+if (-not (Test-Path -Path $TempDir)) 
+{ 
+    New-Item -Path $TempDir -ItemType Directory -Force | Out-Null 
+}
+
+$logDate = Get-Date -Format "yyyy-MM-dd"
+$logFileName = "FileTracker_$logDate.log"
+$logFilePath = Join-Path -Path $TempDir -ChildPath "$logFileName"
 
 function Write-Log {
     param (

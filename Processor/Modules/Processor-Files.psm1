@@ -9,8 +9,7 @@ function Process-CollectionFile {
         [Parameter(Mandatory=$true)]
         [string]$HandlerScript,
         
-        [Parameter(Mandatory=$true)]
-        [string]$VectorDbPath,
+        # VectorDbPath parameter removed
         
         [Parameter(Mandatory=$true)]
         [string]$TempDir,
@@ -59,7 +58,7 @@ function Process-CollectionFile {
     # Prepare parameters for the processor script
     $scriptParams = @{
         FilePath = $filePath
-        VectorDbPath = $VectorDbPath
+        # VectorDbPath assignment removed
         OllamaUrl = $OllamaUrl
         EmbeddingModel = $EmbeddingModel
         TempDir = $TempDir
@@ -112,8 +111,7 @@ function Process-Collection {
         [Parameter(Mandatory=$true)]
         [string]$DatabasePath,
         
-        [Parameter(Mandatory=$true)]
-        [string]$VectorDbPath,
+        # VectorDbPath parameter removed
         
         [Parameter(Mandatory=$true)]
         [string]$TempDir,
@@ -230,8 +228,9 @@ function Process-Collection {
             # Add collection name to file info (not included in API response)
             $file | Add-Member -MemberType NoteProperty -Name "CollectionName" -Value $CollectionName
             
+            # VectorDbPath argument removed from call
             $success = Process-CollectionFile -FileInfo $file -HandlerScript $processorScript -HandlerScriptParams $processorParams `
-                -VectorDbPath $VectorDbPath -TempDir $TempDir -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel `
+                -TempDir $TempDir -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel `
                 -ScriptPath $ScriptPath -UseChunking $UseChunking -ChunkSize $ChunkSize -ChunkOverlap $ChunkOverlap -WriteLog $WriteLog
             
             if ($success) {
@@ -266,8 +265,9 @@ function Process-Collection {
             
             # For deleted files, treating as non-existent to remove from DB
             # so it will be removed from the Chroma DB
+            # VectorDbPath argument removed from call
             $success = Process-CollectionFile -FileInfo $file -HandlerScript $processorScript -HandlerScriptParams $processorParams `
-                -VectorDbPath $VectorDbPath -TempDir $TempDir -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel `
+                -TempDir $TempDir -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel `
                 -ScriptPath $ScriptPath -UseChunking $UseChunking -ChunkSize $ChunkSize -ChunkOverlap $ChunkOverlap -WriteLog $WriteLog
             
             if ($success) {

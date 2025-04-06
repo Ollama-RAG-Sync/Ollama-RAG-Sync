@@ -9,8 +9,8 @@ param (
     [Parameter(Mandatory=$false)]
     [string]$ListenAddress = "localhost",
     
-    [Parameter(Mandatory=$false)]
-    [int]$Port = 8082,
+    [Parameter(Mandatory=$true)]
+    [int]$Port,
     
     [Parameter(Mandatory=$false)]
     [string]$ChromaDbPath,
@@ -40,9 +40,16 @@ $modulesPath = Join-Path -Path $scriptPath -ChildPath "Modules"
 $functionsPath = Join-Path -Path $scriptPath -ChildPath "Functions"
 
 # Set up logging
+$TempDir = Join-Path -Path $InstallPath -ChildPath "Temp"
+if (-not (Test-Path -Path $TempDir)) 
+{ 
+    New-Item -Path $TempDir -ItemType Directory -Force | Out-Null 
+}
+
 $logDate = Get-Date -Format "yyyy-MM-dd"
-$logFileName = "VectorsAPI_$logDate.log"
-$logFilePath = Join-Path -Path $InstallPath -ChildPath $logFileName
+$logFileName = "Vectors_$logDate.log"
+$logFilePath = Join-Path -Path $TempDir -ChildPath "$logFileName"
+
 
 function Write-Log {
     param (

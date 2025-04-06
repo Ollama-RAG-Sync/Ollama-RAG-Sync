@@ -6,8 +6,7 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$FilePath,
     
-    [Parameter(Mandatory=$true)]
-    [string]$VectorDbPath,
+    # VectorDbPath parameter removed as we are using the API
     
     [Parameter(Mandatory=$false)]
     [string]$OllamaUrl,
@@ -37,7 +36,7 @@ param(
     [int]$DefaultChunkOverlap = 200
 )
 
-$ChromaDbPath = $VectorDbPath
+# ChromaDbPath assignment removed
 $logFilePath = Join-Path -Path $TempDir -ChildPath "$(Split-Path -Leaf $FilePath)_processing.txt"
 
 # Function to log messages
@@ -127,7 +126,9 @@ Write-CustomLog "Custom processor started for file: $FilePath"
 # Check if Vectors API is available
 $apiAvailable = Test-VectorsApiAvailable
 if (-not $apiAvailable) {
-    Write-CustomLog "Will attempt to use direct PowerShell functions as fallback" -Level "WARNING"
+    Write-CustomLog "Vectors API is not available at $VectorsApiUrl. Processing cannot continue." -Level "ERROR"
+    # Optionally, throw an error to stop the script execution
+    throw "Vectors API is required but not available at $VectorsApiUrl"
 }
 
 # Example: Determine file type and process accordingly
@@ -157,15 +158,8 @@ switch ($fileExtension) {
             $content | Set-Content -Path $outputPath -Encoding utf8
             
             # Use the Vectors API to add the document to the vector database
-            if ($apiAvailable) {
-                $result = Add-DocumentToVectorsApi -FilePath $outputPath
-            }
-            else {
-                # Fallback to direct PowerShell function
-                $vectorsAddDocumentScript = Join-Path -Path $ScriptPath -ChildPath "..\..\Vectors\Functions\Add-DocumentToVectors.ps1"
-                Write-CustomLog "Adding document to vector database using direct script call..."
-                $result = & $vectorsAddDocumentScript -FilePath $outputPath -ChromaDbPath $ChromaDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel
-            }
+            # Fallback logic removed, API availability is checked earlier
+            $result = Add-DocumentToVectorsApi -FilePath $outputPath
             
             if (-not $result) {
                 Write-CustomLog "Failed to add document to vector database" -Level "ERROR"
@@ -187,15 +181,8 @@ switch ($fileExtension) {
         $processedContent | Set-Content -Path $tempFile -Encoding utf8
         
         # Use the Vectors API to add the document to the vector database
-        if ($apiAvailable) {
-            $result = Add-DocumentToVectorsApi -FilePath $tempFile
-        }
-        else {
-            # Fallback to direct PowerShell function
-            $vectorsAddDocumentScript = Join-Path -Path $ScriptPath -ChildPath "..\..\Vectors\Functions\Add-DocumentToVectors.ps1"
-            Write-CustomLog "Adding document to vector database using direct script call..."
-            $result = & $vectorsAddDocumentScript -FilePath $tempFile -ChromaDbPath $ChromaDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel
-        }
+        # Fallback logic removed
+        $result = Add-DocumentToVectorsApi -FilePath $tempFile
         
         if (-not $result) {
             Write-CustomLog "Failed to add document to vector database" -Level "ERROR"
@@ -215,15 +202,8 @@ switch ($fileExtension) {
         $enhancedContent | Set-Content -Path $tempFile -Encoding utf8
         
         # Use the Vectors API to add the document to the vector database
-        if ($apiAvailable) {
-            $result = Add-DocumentToVectorsApi -FilePath $tempFile
-        }
-        else {
-            # Fallback to direct PowerShell function
-            $vectorsAddDocumentScript = Join-Path -Path $ScriptPath -ChildPath "..\..\Vectors\Functions\Add-DocumentToVectors.ps1"
-            Write-CustomLog "Adding document to vector database using direct script call..."
-            $result = & $vectorsAddDocumentScript -FilePath $tempFile -ChromaDbPath $ChromaDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel
-        }
+        # Fallback logic removed
+        $result = Add-DocumentToVectorsApi -FilePath $tempFile
         
         if (-not $result) {
             Write-CustomLog "Failed to add document to vector database" -Level "ERROR"
@@ -239,15 +219,8 @@ switch ($fileExtension) {
                 $null = Get-Content -Path $FilePath -Raw -ErrorAction Stop
                 
                 # Use the Vectors API to add the document to the vector database
-                if ($apiAvailable) {
-                    $result = Add-DocumentToVectorsApi -FilePath $FilePath
-                }
-                else {
-                    # Fallback to direct PowerShell function
-                    $vectorsAddDocumentScript = Join-Path -Path $ScriptPath -ChildPath "..\..\Vectors\Functions\Add-DocumentToVectors.ps1"
-                    Write-CustomLog "Adding document to vector database using direct script call..."
-                    $result = & $vectorsAddDocumentScript -FilePath $FilePath -ChromaDbPath $ChromaDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel
-                }
+                # Fallback logic removed
+                $result = Add-DocumentToVectorsApi -FilePath $FilePath
                 
                 if (-not $result) {
                     Write-CustomLog "Failed to add document to vector database" -Level "ERROR"

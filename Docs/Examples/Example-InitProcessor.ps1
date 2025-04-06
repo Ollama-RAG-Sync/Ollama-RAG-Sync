@@ -12,7 +12,7 @@ $handlerScriptBlock = {
     param (
         # These parameters will be passed to your scriptblock when it's executed
         [string]$FilePath,
-        [string]$VectorDbPath,
+        # VectorDbPath parameter removed as it's no longer passed by the processor
         [string]$OllamaUrl,
         [string]$EmbeddingModel,
         [string]$TempDir,

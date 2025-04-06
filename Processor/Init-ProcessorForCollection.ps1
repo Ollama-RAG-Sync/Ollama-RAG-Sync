@@ -7,7 +7,7 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$CollectionName,
     
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory=$false)]
     [int]$CollectionId,
     
     [Parameter(Mandatory=$true)]
@@ -17,10 +17,7 @@ param(
     [hashtable]$HandlerParams = @{},
     
     [Parameter(Mandatory=$false)]
-    [string]$DatabasePath,
-    
-    [Parameter(Mandatory=$false)]
-    [switch]$Verbose = $false
+    [string]$DatabasePath
 )
 
 # Import required modules

@@ -10,8 +10,8 @@ param (
     [Parameter(Mandatory=$false)]
     [string]$ListenAddress = "localhost",
     
-    [Parameter(Mandatory=$false)]
-    [int]$Port = 8081,
+    [Parameter(Mandatory=$true)]
+    [int]$Port,
     
     [Parameter(Mandatory=$true)]
     [string]$InstallPath,
@@ -49,7 +49,16 @@ param (
 
 # Set up logging
 $vectorDbPath = Join-Path -Path $InstallPath -ChildPath "Vectors"
-$LogPath = Join-Path -Path $InstallPath -ChildPath "RAGProxy.log"
+$TempDir = Join-Path -Path $InstallPath -ChildPath "Temp"
+if (-not (Test-Path -Path $TempDir)) 
+{ 
+    New-Item -Path $TempDir -ItemType Directory -Force | Out-Null 
+}
+
+$logDate = Get-Date -Format "yyyy-MM-dd"
+$logFileName = "FileTracker_$logDate.log"
+$logFilePath = Join-Path -Path $TempDir -ChildPath "$logFileName"
+
 
 function Close-ProcessOnPort {
     $connection = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
@@ -101,7 +110,7 @@ function Write-ApiLog {
     }
     
     # Write to log file
-    Add-Content -Path $LogPath -Value $logMessage
+    Add-Content -Path $logFilePath -Value $logMessage
 }
 
 # Check if Ollama is running

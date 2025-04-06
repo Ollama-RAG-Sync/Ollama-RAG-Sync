@@ -157,63 +157,6 @@ catch {
     exit 1
 }
 
-# Initialize Vectors subsystem for ChromaDB
-Write-Log "Initializing Vectors subsystem for ChromaDB..." -Level "INFO"
-try {
-    # Check for required Python packages
-    Ensure-Package "chromadb"
-
-    # Initialize Vectors subsystem
-    $vectorsScript = Join-Path -Path $scriptDirectory -ChildPath "Vectors\Start-Vectors.ps1"
-    
-    # Verify script exists
-    if (-not (Test-Path -Path $vectorsScript)) {
-        Write-Log "Start-Vectors.ps1 script not found at: $vectorsScript" -Level "ERROR"
-        exit 1
-    }
-    
-    # Initialize Vector database
-    Write-Log "Initializing Vector database..." -Level "INFO"
-    & $vectorsScript -ChromaDbPath $vectorDbPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel -ChunkSize 1000 -ChunkOverlap 200 -Initialize
-    
-    # Process any existing files to initialize the database if requested
-    if ($ProcessExistingFiles) {
-        Write-Log "Processing existing files using Processor subsystem..." -Level "INFO"
-        
-        # Initialize processor for the collection
-        $initProcessorScript = Join-Path -Path $scriptDirectory -ChildPath "Processor\Init-ProcessorForCollection.ps1"
-        if (-not (Test-Path -Path $initProcessorScript)) {
-            Write-Log "Init-ProcessorForCollection.ps1 script not found at: $initProcessorScript" -Level "ERROR"
-            exit 1
-        }
-        
-        # Process the collection
-        $processCollectionScript = Join-Path -Path $scriptDirectory -ChildPath "Processor\Process-Collection.ps1"
-        if (-not (Test-Path -Path $processCollectionScript)) {
-            Write-Log "Process-Collection.ps1 script not found at: $processCollectionScript" -Level "ERROR"
-            exit 1
-        }
-        
-        # Initialize processor with default collection name
-        $collectionName = "Default-Collection"
-        
-        & $initProcessorScript -CollectionName $collectionName -SourceFolder $DirectoryPath -FileTrackerDbPath $fileTrackerDbPath
-        
-        # Process the collection with the Vectors handler
-        & $processCollectionScript -CollectionName $collectionName -EmbeddingModel $EmbeddingModel -OllamaUrl $OllamaUrl -FileTrackerDbPath $fileTrackerDbPath -TempDir $tempDir
-    } else {
-        Write-Log "Skipping processing of existing files as specified by parameter." -Level "INFO"
-    }
-    
-    Write-Log "Vectors subsystem initialized successfully" -Level "INFO"
-}
-catch {
-    Write-Host $_.Exception.Message -Foreground "Red"
-    Write-Host $_.ScriptStackTrace -Foreground "DarkGray"
-    Write-Log "Error initializing Vectors subsystem: $_" -Level "ERROR"
-    exit 1
-}
-
 # Display summary and next steps
 Write-Log "RAG environment setup complete!" -Level "INFO"
 Write-Log "Summary:" -Level "INFO"
@@ -226,4 +169,4 @@ Write-Log "- Ollama URL: $OllamaUrl" -Level "INFO"
 Write-Log "`nNext steps:" -Level "INFO"
 Write-Log "1. Use Start-RAG.ps1 to begin processing files and updating the vector database" -Level "INFO"
 Write-Log "2. Use Chat-RAG.ps1 to interact with your documents using RAG" -Level "INFO"
-Write-Log "`nExample: .\Start-RAG.ps1 -DirectoryPath '$DirectoryPath'" -Level "INFO"
+Write-Log "`nExample: .\Start-RAG.ps1 -InstallPath '$InstallPath' -DirectoryPath '$DirectoryPath'" -Level "INFO"

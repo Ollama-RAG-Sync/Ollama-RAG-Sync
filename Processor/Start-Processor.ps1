@@ -12,8 +12,8 @@ param(
     [Parameter(Mandatory=$false)]
     [string]$FileTrackerApiPath = "/api",
     
-    [Parameter(Mandatory=$false)]
-    [int]$Port = 8081,
+    [Parameter(Mandatory=$true)]
+    [int]$Port,
     
     [Parameter(Mandatory=$false)]
     [string]$ApiPath = "/api",
@@ -43,6 +43,12 @@ param(
     [hashtable]$HandlerScriptParams = @{}
 )
 $DatabasePath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
+$TempDir = Join-Path -Path $InstallPath -ChildPath "Temp"
+if (-not (Test-Path -Path $TempDir)) 
+{ 
+    New-Item -Path $TempDir -ItemType Directory -Force | Out-Null 
+}
+
 # Import required modules
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $parentPath = Split-Path -Parent $scriptPath
@@ -86,23 +92,17 @@ if (-not $DatabasePath) {
     Write-Host "Using default database path: $DatabasePath" -ForegroundColor Cyan
 }
 
-# Ensure temp directory exists
-$appDataDir = Join-Path -Path $env:APPDATA -ChildPath "FileTracker"
-$TempDir = Join-Path -Path $appDataDir -ChildPath "temp"
-if (-not (Test-Path -Path $TempDir)) {
-    New-Item -Path $TempDir -ItemType Directory -Force | Out-Null
-}
-
-# Setup the Vector DB path
-$VectorDbPath = Join-Path -Path $appDataDir -ChildPath "Vectors"
-if (-not (Test-Path -Path $VectorDbPath)) {
-    New-Item -Path $VectorDbPath -ItemType Directory -Force | Out-Null
-}
-
 # Initialize log file
+$TempDir = Join-Path -Path $InstallPath -ChildPath "Temp"
+if (-not (Test-Path -Path $TempDir)) 
+{ 
+    New-Item -Path $TempDir -ItemType Directory -Force | Out-Null 
+}
+
 $logDate = Get-Date -Format "yyyy-MM-dd"
-$logFileName = "Start-Processor_$logDate.log"
-$logFilePath = Join-Path -Path $TempDir -ChildPath $logFileName
+$logFileName = "Processor_$logDate.log"
+$logFilePath = Join-Path -Path $TempDir -ChildPath "$logFileName"
+
 
 # Define base URL for the API
 $baseUrl = "http://localhost:$Port$ApiPath"
@@ -262,7 +262,7 @@ $ProcessCollectionBlock = {
         [string]$CollectionName,
         [string]$FileTrackerBaseUrl,
         [string]$DatabasePath,
-        [string]$VectorDbPath,
+        # VectorDbPath parameter removed
         [string]$TempDir,
         [string]$OllamaUrl,
         [string]$EmbeddingModel,
@@ -281,15 +281,17 @@ $ProcessCollectionBlock = {
     
     # Call Process-Collection with either CollectionId or just CollectionName
     if ($CollectionId) {
+        # VectorDbPath argument removed from call
         Process-Collection -CollectionId $CollectionId -CollectionName $CollectionName -FileTrackerBaseUrl $FileTrackerBaseUrl `
-            -DatabasePath $DatabasePath -VectorDbPath $VectorDbPath -TempDir $TempDir -OllamaUrl $OllamaUrl `
+            -DatabasePath $DatabasePath -TempDir $TempDir -OllamaUrl $OllamaUrl `
             -EmbeddingModel $EmbeddingModel -ScriptPath $ScriptPath -UseChunking $UseChunking -ChunkSize $ChunkSize `
             -ChunkOverlap $ChunkOverlap -CustomProcessorScript $CustomProcessorScript -CustomProcessorParams $CustomProcessorParams `
             -WriteLog $WriteLog -GetCollectionDirtyFiles $GetCollectionDirtyFiles -GetCollectionDeletedFiles $GetCollectionDeletedFiles `
             -GetCollectionProcessor $GetCollectionProcessor -MarkFileAsProcessed $MarkFileAsProcessed
     } else {
+        # VectorDbPath argument removed from call
         Process-Collection -CollectionName $CollectionName -FileTrackerBaseUrl $FileTrackerBaseUrl `
-            -DatabasePath $DatabasePath -VectorDbPath $VectorDbPath -TempDir $TempDir -OllamaUrl $OllamaUrl `
+            -DatabasePath $DatabasePath -TempDir $TempDir -OllamaUrl $OllamaUrl `
             -EmbeddingModel $EmbeddingModel -ScriptPath $ScriptPath -UseChunking $UseChunking -ChunkSize $ChunkSize `
             -ChunkOverlap $ChunkOverlap -CustomProcessorScript $CustomProcessorScript -CustomProcessorParams $CustomProcessorParams `
             -WriteLog $WriteLog -GetCollectionDirtyFiles $GetCollectionDirtyFiles -GetCollectionDeletedFiles $GetCollectionDeletedFiles `
@@ -298,11 +300,32 @@ $ProcessCollectionBlock = {
 }
 
 # Start the HTTP server
+try
+{
 Start-ProcessorHttpServer -Port $Port -ApiPath $ApiPath -DatabasePath $DatabasePath -FileTrackerBaseUrl $fileTrackerBaseUrl `
-    -VectorDbPath $VectorDbPath -TempDir $TempDir -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel -ScriptPath $scriptPath `
+    -TempDir $TempDir -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel -ScriptPath $scriptPath `
     -UseChunking $UseChunking -ChunkSize $ChunkSize -ChunkOverlap $ChunkOverlap -WriteLog $WriteLogBlock `
     -GetCollections $GetCollectionsBlock -GetCollectionDirtyFiles $GetCollectionDirtyFilesBlock `
     -GetCollectionDeletedFiles $GetCollectionDeletedFilesBlock -GetCollectionProcessor $GetCollectionProcessorBlock `
     -SetCollectionProcessor $SetCollectionProcessorBlock -RemoveCollectionProcessor $RemoveCollectionProcessorBlock `
     -GetProcessorScriptsCount $GetProcessorScriptsCountBlock -ProcessCollection $ProcessCollectionBlock `
     -MarkFileAsProcessed $MarkFileAsProcessedBlock -GetFileDetails $GetFileDetailsBlock
+}
+catch {
+    # Check for specific HttpListenerException related to port conflict
+    if ($_.Exception -is [System.Net.HttpListenerException] -and $_.Exception.Message -like "*conflicts with an existing registration*") {
+        Write-Error "Failed to start HTTP listener on port $Port. The port is already in use or reserved."
+        Write-Host "Please ensure no other application is using port $Port." -ForegroundColor Yellow
+        Write-Host "You can check existing URL reservations using: netsh http show urlacl" -ForegroundColor Yellow
+        Write-Host "If necessary, you might be able to clear registrations using the script: Tools\Clear-PortRegistrations.ps1 (Run as Administrator)" -ForegroundColor Yellow
+        Write-Host "Alternatively, try starting the processor with a different -Port parameter." -ForegroundColor Yellow
+    } else {
+        # Log other errors
+        Write-Error "An unexpected error occurred while starting the HTTP server: $($_.Exception.Message)"
+        # Ensure Temp directory exists before writing error log
+        if (-not (Test-Path -Path $TempDir)) { New-Item -Path $TempDir -ItemType Directory -Force | Out-Null }
+        $_ | Out-File -FilePath "$(Join-Path -Path $TempDir -ChildPath 'ProcessorError.log')" -Append
+    }
+    # Exit in both cases as the server failed to start
+    exit 1
+}

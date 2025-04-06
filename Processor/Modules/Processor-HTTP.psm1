@@ -115,9 +115,6 @@ function Start-ProcessorHttpServer {
         [string]$FileTrackerBaseUrl,
         
         [Parameter(Mandatory=$true)]
-        [string]$VectorDbPath,
-        
-        [Parameter(Mandatory=$true)]
         [string]$TempDir,
         
         [Parameter(Mandatory=$true)]
@@ -390,7 +387,7 @@ function Start-ProcessorHttpServer {
                                 
                                 # Process the collection
                                 $result = & $ProcessCollection -CollectionId $collectionId -CollectionName $collectionName `
-                                    -FileTrackerBaseUrl $FileTrackerBaseUrl -DatabasePath $DatabasePath -VectorDbPath $VectorDbPath `
+                                    -FileTrackerBaseUrl $FileTrackerBaseUrl -DatabasePath $DatabasePath `
                                     -TempDir $TempDir -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel -ScriptPath $ScriptPath `
                                     -UseChunking $UseChunking -ChunkSize $ChunkSize -ChunkOverlap $ChunkOverlap `
                                     -CustomProcessorScript $customProcessorScript -CustomProcessorParams $customProcessorParams `
@@ -442,7 +439,7 @@ function Start-ProcessorHttpServer {
                                 
                                 # Process the collection
                                 $result = & $ProcessCollection -CollectionName $collectionName `
-                                    -FileTrackerBaseUrl $FileTrackerBaseUrl -DatabasePath $DatabasePath -VectorDbPath $VectorDbPath `
+                                    -FileTrackerBaseUrl $FileTrackerBaseUrl -DatabasePath $DatabasePath `
                                     -TempDir $TempDir -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel -ScriptPath $ScriptPath `
                                     -UseChunking $UseChunking -ChunkSize $ChunkSize -ChunkOverlap $ChunkOverlap `
                                     -CustomProcessorScript $customProcessorScript -CustomProcessorParams $customProcessorParams `
@@ -496,7 +493,7 @@ function Start-ProcessorHttpServer {
                                     
                                     # Process the collection
                                     $result = & $ProcessCollection -CollectionId $collectionId -CollectionName $collectionName `
-                                        -FileTrackerBaseUrl $FileTrackerBaseUrl -DatabasePath $DatabasePath -VectorDbPath $VectorDbPath `
+                                        -FileTrackerBaseUrl $FileTrackerBaseUrl -DatabasePath $DatabasePath `
                                         -TempDir $TempDir -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel -ScriptPath $ScriptPath `
                                         -UseChunking $UseChunking -ChunkSize $ChunkSize -ChunkOverlap $ChunkOverlap -WriteLog $WriteLog `
                                         -GetCollectionDirtyFiles $getCollectionDirtyFilesBlock `
@@ -608,7 +605,7 @@ function Start-ProcessorHttpServer {
                                     
                                     # Process the file
                                     $success = Process-CollectionFile -FileInfo $file -HandlerScript $processorScript `
-                                        -HandlerScriptParams $processorParams -VectorDbPath $VectorDbPath -TempDir $TempDir `
+                                        -HandlerScriptParams $processorParams -TempDir $TempDir `
                                         -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel -ScriptPath $ScriptPath `
                                         -UseChunking $UseChunking -ChunkSize $ChunkSize -ChunkOverlap $ChunkOverlap -WriteLog $WriteLog
                                     
