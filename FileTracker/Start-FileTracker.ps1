@@ -606,7 +606,8 @@ function Process-Request {
                         $connection.Close()
                         
                         if ($filePath) {
-                            $success = Update-FileStatus -FileId $fileId -Dirty $data.dirty -DatabasePath $DatabasePath -CollectionId $collectionId
+                            $scriptPath =  "$PSScriptRoot\Update-FileStatus.ps1"
+                            $success = & $scriptPath -FileId $fileId -Dirty $data.dirty -DatabasePath $DatabasePath -CollectionId $collectionId
                             
                             if ($success) {
                                 $Response.StatusCode = 200

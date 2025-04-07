@@ -50,7 +50,7 @@ $logDate = Get-Date -Format "yyyy-MM-dd"
 $logFileName = "Vectors_$logDate.log"
 $logFilePath = Join-Path -Path $TempDir -ChildPath "$logFileName"
 
-
+$ChromaDbPath = Join-Path -Path $InstallPath -ChildPath "Chroma.db"
 function Write-Log {
     param (
         [Parameter(Mandatory=$true)]
@@ -106,7 +106,7 @@ function Add-Document {
     param (
         [Parameter(Mandatory=$true)]
         [string]$FilePath,
-        
+
         [Parameter(Mandatory=$false)]
         [int]$FileId = 0,
         
@@ -172,7 +172,7 @@ function Add-Document {
         }
     }
     catch {
-        Write-Log "Error adding document to vectors: $_" -Level "ERROR"
+        Write-Log "Error adding document to vectors: $_ ${$_.ScriptStackTrace}" -Level "ERROR"
         return @{
             success = $false
             error = $_.ToString()

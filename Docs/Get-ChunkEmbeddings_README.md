@@ -9,22 +9,6 @@ This script creates embedding vectors for multiple chunks of a specified text fi
 - Ollama running locally or at a specified URL
 - An embedding model available in your Ollama installation (default: mxbai-embed-large:latest)
 
-## Usage
-
-```powershell
-# Basic usage - generate chunk embeddings for a text file and return them
-.\Embeddings\Get-ChunkEmbeddings.ps1 -FilePath "path/to/your/file.md" -ChromaDbPath "./ai/Vectors"
-
-# Save embeddings to ChromaDB
-.\Embeddings\Get-ChunkEmbeddings.ps1 -FilePath "path/to/your/file.md" -ChromaDbPath "./ai/Vectors" -SaveToChroma
-
-# Customize chunking parameters
-.\Embeddings\Get-ChunkEmbeddings.ps1 -FilePath "path/to/your/file.md" -ChunkSize 1500 -ChunkOverlap 300 -ChromaDbPath "./ai/Vectors" -SaveToChroma
-
-# Use a different embedding model
-.\Embeddings\Get-ChunkEmbeddings.ps1 -FilePath "path/to/your/file.md" -EmbeddingModel "mistral-embed" -ChromaDbPath "./ai/Vectors" -SaveToChroma
-```
-
 ## Parameters
 
 - **FilePath** (Required): Path to the text file to generate embeddings for

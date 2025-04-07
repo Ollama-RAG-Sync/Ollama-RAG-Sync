@@ -122,7 +122,7 @@ Ensure-Package "numpy"
 
 # Define paths
 $fileTrackerDbPath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
-$vectorDbPath = Join-Path -Path $InstallPath -ChildPath "Vectors"
+$vectorDbPath = Join-Path -Path $InstallPath -ChildPath "Chroma.db"
 
 # Get script directory for accessing other scripts
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path

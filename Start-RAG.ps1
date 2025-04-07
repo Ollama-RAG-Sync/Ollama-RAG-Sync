@@ -143,7 +143,7 @@ if (-not (Test-Path -Path $DirectoryPath)) {
 }
 
 $fileTrackerDbPath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
-
+$chromaDbPath = Join-Path -Path $InstallPath -ChildPath "Chroma.db"
 # Get script directory for accessing other scripts
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 
@@ -185,9 +185,6 @@ catch {
 # Start the FileTracker subsystem
 Write-Log "Starting FileTracker subsystem..." -Level "INFO"
 try {
-    # Create a default collection name based on directory path
-    $collectionName = "Default-Collection"
-    
     # Start FileTracker API service
     $fileTrackerScript = Join-Path -Path $scriptDirectory -ChildPath "FileTracker\Start-FileTracker.ps1"
     
@@ -210,26 +207,6 @@ try {
     
     Write-Log "FileTracker started successfully (Job ID: $($fileTrackerJob.Id))" -Level "INFO"
     Write-Log "FileTracker API available at: http://localhost:$FileTrackerPort/api" -Level "INFO"
-    
-    # Start watching the collection using the FileTracker API
-    $watchCollectionScript = Join-Path -Path $scriptDirectory -ChildPath "FileTracker\Start-CollectionWatch.ps1"
-    
-    # Verify script exists
-    if (-not (Test-Path -Path $watchCollectionScript)) {
-        Write-Log "Start-CollectionWatch.ps1 script not found at: $watchCollectionScript" -Level "ERROR"
-        exit 1
-    }
-    
-    # Create watch job
-    $watchCollectionJobScript = {
-        param($scriptPath, $collectionName, $sourceFolder, $fileTrackerApiUrl, $processInterval, $fileFilter, $includeSubdirectories)
-        & $scriptPath -CollectionName $collectionName -SourceFolder $sourceFolder -FileTrackerApiUrl $fileTrackerApiUrl -ProcessInterval $processInterval -FileFilter $fileFilter -IncludeSubdirectories:$includeSubdirectories
-    }
-    
-    $fileTrackerApiUrl = "http://localhost:$FileTrackerPort/api"
-    $watchCollectionJob = Start-Job -ScriptBlock $watchCollectionJobScript -ArgumentList $watchCollectionScript, $collectionName, $DirectoryPath, $fileTrackerApiUrl, $ProcessInterval, $FileFilter, $IncludeSubdirectories
-    
-    Write-Log "Collection watcher started successfully (Job ID: $($watchCollectionJob.Id))" -Level "INFO"
 }
 catch {
     Write-Log "Error starting FileTracker subsystem: $_" -Level "ERROR"
@@ -315,7 +292,6 @@ catch {
 # Display summary and useful information
 Write-Log "RAG processing started successfully!" -Level "INFO"
 Write-Log "Summary:" -Level "INFO"
-Write-Log "- Directory being monitored: $DirectoryPath" -Level "INFO"
 Write-Log "- File tracker database: $fileTrackerDbPath" -Level "INFO"
 Write-Log "- Vector database: $vectorDbPath" -Level "INFO"
 Write-Log "- Embedding model: $EmbeddingModel" -Level "INFO"
@@ -325,7 +301,6 @@ if ($ContextOnlyMode) {
 }
 Write-Log "- Vectors API job ID: $($vectorsAPIJob.Id)" -Level "INFO" 
 Write-Log "- FileTracker job ID: $($fileTrackerJob.Id)" -Level "INFO"
-Write-Log "- Collection watcher job ID: $($watchCollectionJob.Id)" -Level "INFO"
 Write-Log "- Processor API job ID: $($processorJob.Id)" -Level "INFO"
 Write-Log "- API proxy server job ID: $($apiProxyJob.Id)" -Level "INFO"
 Write-Log "- API endpoint: http://localhost:$ApiProxyPort/" -Level "INFO"

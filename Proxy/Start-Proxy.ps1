@@ -48,7 +48,7 @@ param (
 )
 
 # Set up logging
-$vectorDbPath = Join-Path -Path $InstallPath -ChildPath "Vectors"
+$vectorDbPath = Join-Path -Path $InstallPath -ChildPath "Chroma.db"
 $TempDir = Join-Path -Path $InstallPath -ChildPath "Temp"
 if (-not (Test-Path -Path $TempDir)) 
 { 

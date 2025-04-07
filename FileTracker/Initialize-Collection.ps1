@@ -30,22 +30,22 @@
 .PARAMETER IncludeSubdirectories
     If specified with -Watch, include subdirectories in file monitoring. Default is true if -Watch is specified.
 .EXAMPLE
-    .\Initialize-Collections.ps1 -CollectionName "Documentation" -FolderPath "D:\MyDocuments"
+    .\Initialize-Collection.ps1 -CollectionName "Documentation" -FolderPath "D:\MyDocuments"
     # This will create a collection named "Documentation" with all files from D:\MyDocuments
 .EXAMPLE
-    .\Initialize-Collections.ps1 -CollectionName "Projects" -FolderPath "D:\Projects" -Description "Software project documentation" -OmitFolders @(".ai", ".git", "bin", "obj")
+    .\Initialize-Collection.ps1 -CollectionName "Projects" -FolderPath "D:\Projects" -Description "Software project documentation" -OmitFolders @(".ai", ".git", "bin", "obj")
     # This will create a collection with the specified description and exclude additional folders from tracking
 .EXAMPLE
-    .\Initialize-Collections.ps1 -CollectionName "Documents" -FolderPath "D:\Files" -IncludeExtensions @(".docx", ".pdf", ".txt")
+    .\Initialize-Collection.ps1 -CollectionName "Documents" -FolderPath "D:\Files" -IncludeExtensions @(".docx", ".pdf", ".txt")
     # This will create a collection that only includes files with the specified extensions
 .EXAMPLE
-    .\Initialize-Collections.ps1 -CollectionName "CodeProject" -FolderPath "D:\Projects\MyApp" -Watch
+    .\Initialize-Collection.ps1 -CollectionName "CodeProject" -FolderPath "D:\Projects\MyApp" -Watch
     # This will create a collection and start a background job to monitor for file changes
 .EXAMPLE
-    .\Initialize-Collections.ps1 -CollectionName "Reports" -FolderPath "D:\Reports" -Watch -WatchCreated -WatchModified -IncludeSubdirectories
+    .\Initialize-Collection.ps1 -CollectionName "Reports" -FolderPath "D:\Reports" -Watch -WatchCreated -WatchModified -IncludeSubdirectories
     # This will create a collection with a file watcher that only monitors for created and modified files in all subdirectories
 .EXAMPLE
-    .\Initialize-Collections.ps1 -CollectionName "ApiDocs" -FolderPath "D:\Docs\API" -Watch -ProcessInterval 30 -OmitFolders @(".ai", ".git", "node_modules")
+    .\Initialize-Collection.ps1 -CollectionName "ApiDocs" -FolderPath "D:\Docs\API" -Watch -ProcessInterval 30 -OmitFolders @(".ai", ".git", "node_modules")
     # This will create a collection with a file watcher that checks for changes every 30 seconds and excludes specific folders
 #>
 

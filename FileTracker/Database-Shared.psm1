@@ -604,6 +604,7 @@ function Get-CollectionFiles {
                 lastModified = $reader.GetString(3)
                 dirty = $reader.GetBoolean(4)
                 deleted = $reader.GetBoolean(5)
+                collectionId = $CollectionId
             }
             
             $files += $file

@@ -20,7 +20,6 @@ Process-Collection.ps1 retrieves all files marked as dirty in a collection, proc
 | CollectionId | int | Yes* | - | ID of the collection to process (*Either CollectionId or CollectionName is required) |
 | CollectionName | string | Yes* | - | Name of the collection to process (*Either CollectionId or CollectionName is required) |
 | DatabasePath | string | No | Auto-detected | Path to the FileTracker SQLite database |
-| VectorDbPath | string | No | "[DatabasePath]/../Vectors" | Path to store vector embeddings |
 | OllamaUrl | string | No | "http://localhost:11434" | URL for the Ollama API |
 | EmbeddingModel | string | No | "mxbai-embed-large:latest" | Model to use for embeddings |
 | UseChunking | bool | No | $true | Whether to use chunking for document processing |

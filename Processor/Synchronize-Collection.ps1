@@ -5,14 +5,14 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$CollectionName,
     
-    [Parameter(Mandatory=$false)]
-    [string]$DatabasePath,
+    [Parameter(Mandatory=$true)]
+    [string]$InstallPath,
     
     [Parameter(Mandatory=$false)]
-    [string]$VectorsApiUrl = "http://localhost:8082",
+    [string]$VectorsApiUrl = "http://localhost:11092",
     
     [Parameter(Mandatory=$false)]
-    [string]$FileTrackerApiUrl = "http://localhost:8080",
+    [string]$FileTrackerApiUrl = "http://localhost:11090/api",
     
     [Parameter(Mandatory=$false)]
     [int]$ChunkSize = 1000,
@@ -33,16 +33,21 @@ param(
 # Import required modules
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $modulesPath = Join-Path -Path $scriptPath -ChildPath "Modules"
+$TempDir = Join-Path -Path $InstallPath -ChildPath "Temp"
+if (-not (Test-Path -Path $TempDir)) 
+{ 
+    New-Item -Path $TempDir -ItemType Directory -Force | Out-Null 
+}
+
+$logDate = Get-Date -Format "yyyy-MM-dd"
+$logFileName = "SynchronizeCollection_${CollectionName}_$logDate.log"
+$logFilePath = Join-Path -Path $TempDir -ChildPath "$logFileName"
 
 # Import modules
 Import-Module "$modulesPath\Processor-FileTrackerAPI.psm1" -Force
 Import-Module "$modulesPath\Processor-HTTP.psm1" -Force
 Import-Module "$modulesPath\Processor-Logging.psm1" -Force
 
-# Initialize log file
-$logDate = Get-Date -Format "yyyy-MM-dd"
-$logFileName = "SynchronizeCollection_${CollectionName}_$logDate.log"
-$logFilePath = Join-Path -Path $InstallPath -ChildPath $logFileName
 
 # Define WriteLog script block for passing to module functions
 $WriteLog = {

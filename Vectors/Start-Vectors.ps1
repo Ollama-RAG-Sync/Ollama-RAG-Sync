@@ -70,12 +70,6 @@ function Show-VectorsBanner {
 # Show the banner
 Show-VectorsBanner
 
-# Ensure ChromaDbPath is set properly
-if (-not $ChromaDbPath) {
-    # Use default path in the Data directory
-    $ChromaDbPath = Join-Path -Path $scriptPath -ChildPath "..\Data\ChromaDb"
-}
-
 # Set up configuration
 $configOverrides = @{
     ChromaDbPath = $ChromaDbPath

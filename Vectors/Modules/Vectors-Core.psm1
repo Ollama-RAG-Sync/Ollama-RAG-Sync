@@ -12,7 +12,6 @@ $script:ModuleVersion = "1.0.0"
 $script:DefaultConfig = @{
     OllamaUrl = "http://localhost:11434"
     EmbeddingModel = "mxbai-embed-large:latest"
-    ChromaDbPath = "$PSScriptRoot\..\..\Data\ChromaDb"
     ChunkSize = 1000
     ChunkOverlap = 200
     SupportedExtensions = ".txt,.md,.html,.csv,.json"

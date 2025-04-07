@@ -87,23 +87,6 @@ The script includes a custom logging function (`Write-CustomLog`) that:
     }
 ```
 
-### Direct Usage
-
-The script can also be called directly for testing or one-off processing:
-
-```powershell
-# Direct usage example
-.\Processing\Update-LocalChromaDb.ps1 `
-    -FilePath "D:\Documents\example.pdf" `
-    -VectorDbPath "D:\Repository\.ai\Vectors" `
-    -OllamaUrl "http://localhost:11434" `
-    -EmbeddingModel "mxbai-embed-large:latest" `
-    -TempDir "D:\Repository\.ai\temp" `
-    -ScriptPath "D:\Repository" `
-    -CustomParam1 "Value1" `
-    -CustomParam2 "Value2"
-```
-
 ## Customization Options
 
 This script is designed to be used as a template that you can customize for your specific needs:
