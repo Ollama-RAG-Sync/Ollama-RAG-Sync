@@ -1,107 +1,13 @@
 # Processor-HTTP.psm1
-# Contains HTTP server functions for the processor REST API
+# Contains HTTP server functions for the processor REST API using Pode
 
-function Get-RequestBody {
-    param (
-        [Parameter(Mandatory=$true)]
-        [System.Net.HttpListenerRequest]$Request,
-        
-        [Parameter(Mandatory=$false)]
-        [switch]$AsObject = $false,
-        
-        [Parameter(Mandatory=$true)]
-        [scriptblock]$WriteLog
-    )
-    
-    try {
-        if ($Request.HasEntityBody) {
-            $bodyReader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)
-            $bodyContent = $bodyReader.ReadToEnd()
-            
-            if ($AsObject -and $bodyContent) {
-                try {
-                    return $bodyContent | ConvertFrom-Json
-                }
-                catch {
-                    & $WriteLog "Failed to parse request body as JSON: $_" -Level "ERROR"
-                    return $null
-                }
-            }
-            
-            return $bodyContent
-        }
-    }
-    catch {
-        & $WriteLog "Error reading request body: $_" -Level "ERROR"
-    }
-    
-    return $null
-}
-
-function Send-Response {
-    param (
-        [Parameter(Mandatory=$true)]
-        [System.Net.HttpListenerResponse]$Response,
-        
-        [Parameter(Mandatory=$false)]
-        [int]$StatusCode = 200,
-        
-        [Parameter(Mandatory=$true)]
-        [PSCustomObject]$Body,
-        
-        [Parameter(Mandatory=$false)]
-        [string]$ContentType = "application/json",
-        
-        [Parameter(Mandatory=$true)]
-        [scriptblock]$WriteLog
-    )
-    
-    try {
-        $Response.StatusCode = $StatusCode
-        $Response.ContentType = $ContentType
-        
-        # Add CORS headers
-        $Response.Headers.Add("Access-Control-Allow-Origin", "*")
-        $Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        $Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type")
-        
-        $jsonResponse = $Body | ConvertTo-Json -Depth 10
-        $buffer = [System.Text.Encoding]::UTF8.GetBytes($jsonResponse)
-        
-        $Response.ContentLength64 = $buffer.Length
-        $Response.OutputStream.Write($buffer, 0, $buffer.Length)
-        $Response.OutputStream.Close()
-    }
-    catch {
-        & $WriteLog "Error sending response: $_" -Level "ERROR"
-    }
-}
-
-function Send-ErrorResponse {
-    param (
-        [Parameter(Mandatory=$true)]
-        [System.Net.HttpListenerResponse]$Response,
-        
-        [Parameter(Mandatory=$false)]
-        [int]$StatusCode = 400,
-        
-        [Parameter(Mandatory=$true)]
-        [string]$ErrorMessage = "Bad Request",
-        
-        [Parameter(Mandatory=$true)]
-        [scriptblock]$WriteLog
-    )
-    
-    $errorBody = @{
-        success = $false
-        error = $ErrorMessage
-    }
-    
-    Send-Response -Response $Response -StatusCode $StatusCode -Body $errorBody -WriteLog $WriteLog
-}
+#Requires -Modules Pode
 
 function Start-ProcessorHttpServer {
     param (
+        [Parameter(Mandatory=$false)]
+        [string]$ListenAddress = "localhost",
+        
         [Parameter(Mandatory=$true)]
         [int]$Port,
         
@@ -124,7 +30,7 @@ function Start-ProcessorHttpServer {
         [string]$EmbeddingModel,
         
         [Parameter(Mandatory=$true)]
-        [string]$ScriptPath,
+        [string]$ScriptPath, # Path to the Processor directory
         
         [Parameter(Mandatory=$true)]
         [bool]$UseChunking,
@@ -170,534 +76,426 @@ function Start-ProcessorHttpServer {
     )
     
     try {
-        # Define base URL for the API
-        $baseUrl = "http://localhost:$Port$ApiPath"
-        
-        # Initialize the HTTP listener
-        $listener = New-Object System.Net.HttpListener
-        $listener.Prefixes.Add("http://localhost:$Port/")
-        $listener.Start()
-        
-        & $WriteLog "HTTP server started at http://localhost:$Port/"
-        & $WriteLog "API endpoints available at $baseUrl"
-        
-        # Main request handling loop
-        while ($listener.IsListening) {
-            # Wait for a request
-            $context = $listener.GetContext()
-            $request = $context.Request
-            $response = $context.Response
-            
-            $urlPath = $request.Url.AbsolutePath
-            $method = $request.HttpMethod
-            
-            # Log the request
-            & $WriteLog "$method $urlPath" -Level "INFO"
-            
-            # Handle CORS preflight requests
-            if ($method -eq "OPTIONS") {
-                Send-Response -Response $response -StatusCode 200 -Body @{ success = $true } -WriteLog $WriteLog
-                continue
-            }
-            
-            try {
-                # Process API requests
-                if ($urlPath.StartsWith($ApiPath)) {
-                    # Extract the endpoint part of the URL (after the API path)
-                    $endpoint = $urlPath.Substring($ApiPath.Length).TrimStart('/')
+        & $using:WriteLog "Starting Processor REST API server using Pode..."
+        & $using:WriteLog "FileTracker API URL: $FileTrackerBaseUrl"
+        & $using:WriteLog "Database Path: $DatabasePath"
+
+        Start-PodeServer -Threads 4 {
+            Add-PodeEndpoint -Address $ListenAddress -Port $Port -Protocol Http
+            # Middleware & OpenAPI Setup
+            Enable-PodeOpenApi -Title "Processor API" -Version "1.0.0" -Description "API for managing and triggering file processing tasks" -ErrorAction Stop
+
+            # --- API Routes ---
+
+            # GET /api/status
+            Add-PodeRoute -Method Get -Path "$($using:ApiPath)/status" -ScriptBlock {
+                try {
+                    $collections = & $using:GetCollections -FileTrackerBaseUrl $using:FileTrackerBaseUrl -WriteLog $using:WriteLog
+                    $processorScriptsCount = & $using:GetProcessorScriptsCount -DatabasePath $using:DatabasePath -WriteLog $using:WriteLog
                     
-                    # Route the request to the appropriate handler
-                    switch -Regex ($endpoint) {
-                        # GET /status - Get processor status
-                        "^status$" {
-                            if ($method -eq "GET") {
-                                # Get all collections
-                                $collections = & $GetCollections -FileTrackerBaseUrl $FileTrackerBaseUrl -WriteLog $WriteLog
-                                
-                                $statusData = @{
-                                    collections = $collections.Count
-                                    processor_scripts = 0
-                                    running_since = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-                                    version = "1.0.0"
-                                }
-                                
-                                # Get processor scripts count
-                                $statusData.processor_scripts = & $GetProcessorScriptsCount -DatabasePath $DatabasePath -WriteLog $WriteLog
-                                
-                                $body = @{
-                                    success = $true
-                                    status = $statusData
-                                }
-                                
-                                Send-Response -Response $response -Body $body -WriteLog $WriteLog
+                    $statusData = @{
+                        collections = if ($null -ne $collections) { $collections.Count } else { 0 }
+                        processor_scripts = $processorScriptsCount
+                        running_since = (Get-PodeServer).StartedAt.ToString("yyyy-MM-dd HH:mm:ss")
+                        version = "1.0.0" # Consider making this dynamic later
+                    }
+                    
+                    Write-PodeJsonResponse -Value @{ success = $true; status = $statusData }
+                } catch {
+                    & $using:WriteLog "Error in GET /status: $_" -Level "ERROR"
+                    Set-PodeResponseStatus -Code 500
+                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                }
+            } -OpenApi @{
+                Summary = "Get processor status"
+                Description = "Retrieves the current status of the processor API, including collection count and processor script count."
+                Responses = @{
+                    "200" = @{ Description = "Processor status"; Content = @{ "application/json" = @{ Schema = @{ type = "object" } } } }
+                    "500" = @{ Description = "Internal Server Error" }
+                }
+            }
+
+            # GET /api/collections
+            Add-PodeRoute -Method Get -Path "$($using:ApiPath)/collections" -ScriptBlock {
+                try {
+                    $collections = & $using:GetCollections -FileTrackerBaseUrl $using:FileTrackerBaseUrl -WriteLog $using:WriteLog
+                    
+                    if ($collections -ne $null) {
+                        foreach ($collection in $collections) {
+                            $processor = & $using:GetCollectionProcessor -CollectionName $collection.name -DatabasePath $using:DatabasePath -WriteLog $using:WriteLog
+                            if ($processor) {
+                                $collection | Add-Member -MemberType NoteProperty -Name "has_processor" -Value $true
+                                $collection | Add-Member -MemberType NoteProperty -Name "processor_script" -Value $processor.HandlerScript
+                            } else {
+                                $collection | Add-Member -MemberType NoteProperty -Name "has_processor" -Value $false
                             }
-                            else {
-                                Send-ErrorResponse -Response $response -StatusCode 405 -ErrorMessage "Method Not Allowed" -WriteLog $WriteLog
-                            }
-                            break
                         }
+                        Write-PodeJsonResponse -Value @{ success = $true; collections = $collections; count = $collections.Count }
+                    } else {
+                        Set-PodeResponseStatus -Code 500
+                        Write-PodeJsonResponse -Value @{ success = $false; error = "Failed to fetch collections from FileTracker" }
+                    }
+                } catch {
+                    & $using:WriteLog "Error in GET /collections: $_" -Level "ERROR"
+                    Set-PodeResponseStatus -Code 500
+                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                }
+            } -OpenApi @{
+                Summary = "Get all collections with processor info"
+                Description = "Retrieves a list of all collections from FileTracker and indicates if a custom processor is configured for each."
+                Responses = @{
+                    "200" = @{ Description = "List of collections"; Content = @{ "application/json" = @{ Schema = @{ type = "object" } } } }
+                    "500" = @{ Description = "Internal Server Error or FileTracker communication issue" }
+                }
+            }
+
+            # GET /api/collections/{id}/processor
+            Add-PodeRoute -Method Get -Path "$($using:ApiPath)/collections/:collectionId/processor" -ScriptBlock {
+                try {
+                    $collectionId = [int]$WebEvent.Parameters['collectionId']
+                    $collections = & $using:GetCollections -FileTrackerBaseUrl $using:FileTrackerBaseUrl -WriteLog $using:WriteLog
+                    $collection = $collections | Where-Object { $_.id -eq $collectionId }
+                    
+                    if (-not $collection) { Set-PodeResponseStatus -Code 404; Write-PodeJsonResponse -Value @{ success = $false; error = "Collection not found" }; return }
+                    
+                    $collectionName = $collection.name
+                    $processor = & $using:GetCollectionProcessor -CollectionName $collectionName -DatabasePath $using:DatabasePath -WriteLog $using:WriteLog
+                    
+                    if ($processor) {
+                        Write-PodeJsonResponse -Value @{ success = $true; processor = $processor }
+                    } else {
+                        Set-PodeResponseStatus -Code 404
+                        Write-PodeJsonResponse -Value @{ success = $false; error = "No processor found for collection" }
+                    }
+                } catch {
+                    & $using:WriteLog "Error in GET /collections/$($WebEvent.Parameters['collectionId'])/processor: $_" -Level "ERROR"
+                    Set-PodeResponseStatus -Code 500
+                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                }
+            } -OpenApi @{
+                Summary = "Get collection processor"
+                Description = "Retrieves the configured processor script and parameters for a specific collection."
+                Parameters = @( @{ Name = "collectionId"; In = "path"; Required = $true; Schema = @{ type = "integer" } } )
+                Responses = @{
+                    "200" = @{ Description = "Processor details"; Content = @{ "application/json" = @{ Schema = @{ type = "object" } } } }
+                    "404" = @{ Description = "Collection or processor not found" }
+                    "500" = @{ Description = "Internal Server Error" }
+                }
+            }
+
+            # PUT /api/collections/{id}/processor
+            Add-PodeRoute -Method Put -Path "$($using:ApiPath)/collections/:collectionId/processor" -ScriptBlock {
+                try {
+                    $collectionId = [int]$WebEvent.Parameters['collectionId']
+                    $data = $WebEvent.Data
+                    
+                    $collections = & $using:GetCollections -FileTrackerBaseUrl $using:FileTrackerBaseUrl -WriteLog $using:WriteLog
+                    $collection = $collections | Where-Object { $_.id -eq $collectionId }
+                    if (-not $collection) { Set-PodeResponseStatus -Code 404; Write-PodeJsonResponse -Value @{ success = $false; error = "Collection not found" }; return }
+                    
+                    if (-not $data -or -not $data.processor_script) { Set-PodeResponseStatus -Code 400; Write-PodeJsonResponse -Value @{ success = $false; error = "Missing required field: processor_script" }; return }
+                    
+                    $collectionName = $collection.name
+                    $processorScript = $data.processor_script
+                    $processorParams = if ($data.processor_params) { $data.processor_params } else { @{} }
+                    
+                    $success = & $using:SetCollectionProcessor -CollectionId $collectionId -CollectionName $collectionName `
+                        -HandlerScript $processorScript -HandlerParams $processorParams -DatabasePath $using:DatabasePath -WriteLog $using:WriteLog
+                    
+                    if ($success) {
+                        Write-PodeJsonResponse -Value @{ success = $true; message = "Processor set successfully"; collection_id = $collectionId; collection_name = $collectionName; processor_script = $processorScript }
+                    } else {
+                        Set-PodeResponseStatus -Code 500
+                        Write-PodeJsonResponse -Value @{ success = $false; error = "Failed to set processor" }
+                    }
+                } catch {
+                    & $using:WriteLog "Error in PUT /collections/$($WebEvent.Parameters['collectionId'])/processor: $_" -Level "ERROR"
+                    Set-PodeResponseStatus -Code 500
+                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                }
+            } -OpenApi @{
+                Summary = "Set collection processor"
+                Description = "Sets or updates the processor script and parameters for a specific collection."
+                Parameters = @( @{ Name = "collectionId"; In = "path"; Required = $true; Schema = @{ type = "integer" } } )
+                RequestBody = @{
+                    Required = $true
+                    Content = @{ "application/json" = @{ Schema = @{ type = "object"; properties = @{ processor_script = @{ type = "string" }; processor_params = @{ type = "object" } }; required = @("processor_script") } } }
+                }
+                Responses = @{
+                    "200" = @{ Description = "Processor set successfully" }
+                    "400" = @{ Description = "Bad Request (missing processor_script)" }
+                    "404" = @{ Description = "Collection not found" }
+                    "500" = @{ Description = "Internal Server Error" }
+                }
+            }
+
+            # DELETE /api/collections/{id}/processor
+            Add-PodeRoute -Method Delete -Path "$($using:ApiPath)/collections/:collectionId/processor" -ScriptBlock {
+                try {
+                    $collectionId = [int]$WebEvent.Parameters['collectionId']
+                    $collections = & $using:GetCollections -FileTrackerBaseUrl $using:FileTrackerBaseUrl -WriteLog $using:WriteLog
+                    $collection = $collections | Where-Object { $_.id -eq $collectionId }
+                    if (-not $collection) { Set-PodeResponseStatus -Code 404; Write-PodeJsonResponse -Value @{ success = $false; error = "Collection not found" }; return }
+                    
+                    $collectionName = $collection.name
+                    $success = & $using:RemoveCollectionProcessor -CollectionName $collectionName -DatabasePath $using:DatabasePath -WriteLog $using:WriteLog
+                    
+                    if ($success) {
+                        Write-PodeJsonResponse -Value @{ success = $true; message = "Processor removed successfully"; collection_id = $collectionId; collection_name = $collectionName }
+                    } else {
+                        Set-PodeResponseStatus -Code 404 # Or 500 if removal failed unexpectedly
+                        Write-PodeJsonResponse -Value @{ success = $false; error = "No processor found for collection or failed to remove" }
+                    }
+                } catch {
+                    & $using:WriteLog "Error in DELETE /collections/$($WebEvent.Parameters['collectionId'])/processor: $_" -Level "ERROR"
+                    Set-PodeResponseStatus -Code 500
+                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                }
+            } -OpenApi @{
+                Summary = "Remove collection processor"
+                Description = "Removes the custom processor configuration for a specific collection."
+                Parameters = @( @{ Name = "collectionId"; In = "path"; Required = $true; Schema = @{ type = "integer" } } )
+                Responses = @{
+                    "200" = @{ Description = "Processor removed successfully" }
+                    "404" = @{ Description = "Collection or processor not found" }
+                    "500" = @{ Description = "Internal Server Error" }
+                }
+            }
+
+            # POST /api/collections/{id}/process
+            Add-PodeRoute -Method Post -Path "$($using:ApiPath)/collections/:collectionId/process" -ScriptBlock {
+                try {
+                    $collectionId = [int]$WebEvent.Parameters['collectionId']
+                    $collections = & $using:GetCollections -FileTrackerBaseUrl $using:FileTrackerBaseUrl -WriteLog $using:WriteLog
+                    $collection = $collections | Where-Object { $_.id -eq $collectionId }
+                    if (-not $collection) { Set-PodeResponseStatus -Code 404; Write-PodeJsonResponse -Value @{ success = $false; error = "Collection not found" }; return }
+                    
+                    $collectionName = $collection.name
+                    $data = $WebEvent.Data
+                    $customProcessorScript = if ($data.processor_script) { $data.processor_script } else { $null }
+                    $customProcessorParams = if ($data.processor_params) { $data.processor_params } else { @{} }
+                    
+                    # Process the collection (Note: This runs synchronously in the route)
+                    $result = & $using:ProcessCollection -CollectionId $collectionId -CollectionName $collectionName `
+                        -FileTrackerBaseUrl $using:FileTrackerBaseUrl -DatabasePath $using:DatabasePath `
+                        -TempDir $using:TempDir -OllamaUrl $using:OllamaUrl -EmbeddingModel $using:EmbeddingModel -ScriptPath $using:ScriptPath `
+                        -UseChunking $using:UseChunking -ChunkSize $using:ChunkSize -ChunkOverlap $using:ChunkOverlap `
+                        -CustomProcessorScript $customProcessorScript -CustomProcessorParams $customProcessorParams `
+                        -WriteLog $using:WriteLog -GetCollectionDirtyFiles $using:GetCollectionDirtyFiles `
+                        -GetCollectionDeletedFiles $using:GetCollectionDeletedFiles `
+                        -GetCollectionProcessor $using:GetCollectionProcessor -MarkFileAsProcessed $using:MarkFileAsProcessed
+                    
+                    Write-PodeJsonResponse -Value @{ success = $true; message = $result.message; collection_id = $collectionId; collection_name = $collectionName; processed_files = $result.processed; errors = $result.errors }
+                    
+                } catch {
+                    & $using:WriteLog "Error in POST /collections/$($WebEvent.Parameters['collectionId'])/process: $_" -Level "ERROR"
+                    Set-PodeResponseStatus -Code 500
+                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                }
+            } -OpenApi @{
+                Summary = "Process dirty files in a collection by ID"
+                Description = "Triggers the processing logic for all files marked as dirty within a specific collection."
+                Parameters = @( @{ Name = "collectionId"; In = "path"; Required = $true; Schema = @{ type = "integer" } } )
+                RequestBody = @{
+                    Content = @{ "application/json" = @{ Schema = @{ type = "object"; properties = @{ processor_script = @{ type = "string" }; processor_params = @{ type = "object" } } } } }
+                }
+                Responses = @{
+                    "200" = @{ Description = "Processing complete"; Content = @{ "application/json" = @{ Schema = @{ type = "object" } } } }
+                    "404" = @{ Description = "Collection not found" }
+                    "500" = @{ Description = "Internal Server Error during processing" }
+                }
+            }
+
+            # POST /api/collections/name/{name}/process
+            Add-PodeRoute -Method Post -Path "$($using:ApiPath)/collections/name/:collectionName/process" -ScriptBlock {
+                 try {
+                    $collectionName = $WebEvent.Parameters['collectionName']
+                    $collections = & $using:GetCollections -FileTrackerBaseUrl $using:FileTrackerBaseUrl -WriteLog $using:WriteLog
+                    $collection = $collections | Where-Object { $_.name -eq $collectionName }
+                    if (-not $collection) { Set-PodeResponseStatus -Code 404; Write-PodeJsonResponse -Value @{ success = $false; error = "Collection not found" }; return }
+                    
+                    $collectionId = $collection.id # Get ID for consistency if needed later
+                    $data = $WebEvent.Data
+                    $customProcessorScript = if ($data.processor_script) { $data.processor_script } else { $null }
+                    $customProcessorParams = if ($data.processor_params) { $data.processor_params } else { @{} }
+                    
+                    # Process the collection (Note: This runs synchronously in the route)
+                    $result = & $using:ProcessCollection -CollectionName $collectionName `
+                        -FileTrackerBaseUrl $using:FileTrackerBaseUrl -DatabasePath $using:DatabasePath `
+                        -TempDir $using:TempDir -OllamaUrl $using:OllamaUrl -EmbeddingModel $using:EmbeddingModel -ScriptPath $using:ScriptPath `
+                        -UseChunking $using:UseChunking -ChunkSize $using:ChunkSize -ChunkOverlap $using:ChunkOverlap `
+                        -CustomProcessorScript $customProcessorScript -CustomProcessorParams $customProcessorParams `
+                        -WriteLog $using:WriteLog -GetCollectionDirtyFiles $using:GetCollectionDirtyFiles `
+                        -GetCollectionDeletedFiles $using:GetCollectionDeletedFiles `
+                        -GetCollectionProcessor $using:GetCollectionProcessor -MarkFileAsProcessed $using:MarkFileAsProcessed
+                    
+                    Write-PodeJsonResponse -Value @{ success = $true; message = $result.message; collection_name = $collectionName; processed_files = $result.processed; errors = $result.errors }
+                    
+                } catch {
+                    & $using:WriteLog "Error in POST /collections/name/$($WebEvent.Parameters['collectionName'])/process: $_" -Level "ERROR"
+                    Set-PodeResponseStatus -Code 500
+                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                }
+            } -OpenApi @{
+                Summary = "Process dirty files in a collection by name"
+                Description = "Triggers the processing logic for all files marked as dirty within a specific collection, identified by name."
+                Parameters = @( @{ Name = "collectionName"; In = "path"; Required = $true; Schema = @{ type = "string" } } )
+                 RequestBody = @{
+                    Content = @{ "application/json" = @{ Schema = @{ type = "object"; properties = @{ processor_script = @{ type = "string" }; processor_params = @{ type = "object" } } } } }
+                }
+                Responses = @{
+                    "200" = @{ Description = "Processing complete"; Content = @{ "application/json" = @{ Schema = @{ type = "object" } } } }
+                    "404" = @{ Description = "Collection not found" }
+                    "500" = @{ Description = "Internal Server Error during processing" }
+                }
+            }
+
+            # POST /api/process
+            Add-PodeRoute -Method Post -Path "$($using:ApiPath)/process" -ScriptBlock {
+                try {
+                    $collections = & $using:GetCollections -FileTrackerBaseUrl $using:FileTrackerBaseUrl -WriteLog $using:WriteLog
+                    if (-not $collections -or $collections.Count -eq 0) { Set-PodeResponseStatus -Code 404; Write-PodeJsonResponse -Value @{ success = $false; error = "No collections found" }; return }
+                    
+                    $totalProcessed = 0
+                    $totalErrors = 0
+                    $collectionResults = @()
+                    
+                    foreach ($collection in $collections) {
+                        $collectionName = $collection.name
+                        $collectionId = $collection.id
+                        & $using:WriteLog "Processing collection: $collectionName (ID: $collectionId)"
                         
-                        # GET /collections - Get all collections
-                        "^collections$" {
-                            if ($method -eq "GET") {
-                                $collections = & $GetCollections -FileTrackerBaseUrl $FileTrackerBaseUrl -WriteLog $WriteLog
-                                
-                                if ($collections -ne $null) {
-                                    # Add processor info to each collection
-                                    foreach ($collection in $collections) {
-                                        $processor = & $GetCollectionProcessor -CollectionName $collection.name -DatabasePath $DatabasePath -WriteLog $WriteLog
-                                        
-                                        if ($processor) {
-                                            $collection | Add-Member -MemberType NoteProperty -Name "has_processor" -Value $true
-                                            $collection | Add-Member -MemberType NoteProperty -Name "processor_script" -Value $processor.HandlerScript
-                                        }
-                                        else {
-                                            $collection | Add-Member -MemberType NoteProperty -Name "has_processor" -Value $false
-                                        }
-                                    }
-                                    
-                                    $body = @{
-                                        success = $true
-                                        collections = $collections
-                                        count = $collections.Count
-                                    }
-                                    
-                                    Send-Response -Response $response -Body $body -WriteLog $WriteLog
-                                }
-                                else {
-                                    Send-ErrorResponse -Response $response -StatusCode 500 -ErrorMessage "Failed to fetch collections from FileTracker" -WriteLog $WriteLog
-                                }
-                            }
-                            else {
-                                Send-ErrorResponse -Response $response -StatusCode 405 -ErrorMessage "Method Not Allowed" -WriteLog $WriteLog
-                            }
-                            break
-                        }
+                        # Process the collection (Note: This runs synchronously in the route)
+                        $result = & $using:ProcessCollection -CollectionId $collectionId -CollectionName $collectionName `
+                            -FileTrackerBaseUrl $using:FileTrackerBaseUrl -DatabasePath $using:DatabasePath `
+                            -TempDir $using:TempDir -OllamaUrl $using:OllamaUrl -EmbeddingModel $using:EmbeddingModel -ScriptPath $using:ScriptPath `
+                            -UseChunking $using:UseChunking -ChunkSize $using:ChunkSize -ChunkOverlap $using:ChunkOverlap -WriteLog $using:WriteLog `
+                            -GetCollectionDirtyFiles $using:GetCollectionDirtyFiles `
+                            -GetCollectionDeletedFiles $using:GetCollectionDeletedFiles `
+                            -GetCollectionProcessor $using:GetCollectionProcessor -MarkFileAsProcessed $using:MarkFileAsProcessed
                         
-                        # GET /collections/{id}/processor - Get collection processor
-                        # PUT /collections/{id}/processor - Set collection processor
-                        # DELETE /collections/{id}/processor - Remove collection processor
-                        "^collections/(\d+)/processor$" {
-                            $collectionId = [int]$Matches[1]
-                            
-                            # Get collection details to verify it exists and get the name
-                            $collections = & $GetCollections -FileTrackerBaseUrl $FileTrackerBaseUrl -WriteLog $WriteLog
-                            $collection = $collections | Where-Object { $_.id -eq $collectionId }
-                            
-                            if (-not $collection) {
-                                Send-ErrorResponse -Response $response -StatusCode 404 -ErrorMessage "Collection not found" -WriteLog $WriteLog
-                                break
-                            }
-                            
-                            $collectionName = $collection.name
-                            
-                            if ($method -eq "GET") {
-                                $processor = & $GetCollectionProcessor -CollectionName $collectionName -DatabasePath $DatabasePath -WriteLog $WriteLog
-                                
-                                if ($processor) {
-                                    $body = @{
-                                        success = $true
-                                        processor = $processor
-                                    }
-                                    
-                                    Send-Response -Response $response -Body $body -WriteLog $WriteLog
-                                }
-                                else {
-                                    Send-ErrorResponse -Response $response -StatusCode 404 -ErrorMessage "No processor found for collection" -WriteLog $WriteLog
-                                }
-                            }
-                            elseif ($method -eq "PUT") {
-                                $requestBody = Get-RequestBody -Request $request -AsObject -WriteLog $WriteLog
-                                
-                                if (-not $requestBody -or -not $requestBody.processor_script) {
-                                    Send-ErrorResponse -Response $response -StatusCode 400 -ErrorMessage "Missing required field: processor_script" -WriteLog $WriteLog
-                                    break
-                                }
-                                
-                                $processorScript = $requestBody.processor_script
-                                $processorParams = if ($requestBody.processor_params) { $requestBody.processor_params } else { @{} }
-                                
-                                $success = & $SetCollectionProcessor -CollectionId $collectionId -CollectionName $collectionName `
-                                    -HandlerScript $processorScript -HandlerParams $processorParams -DatabasePath $DatabasePath -WriteLog $WriteLog
-                                
-                                if ($success) {
-                                    $body = @{
-                                        success = $true
-                                        message = "Processor set successfully"
-                                        collection_id = $collectionId
-                                        collection_name = $collectionName
-                                        processor_script = $processorScript
-                                    }
-                                    
-                                    Send-Response -Response $response -Body $body -WriteLog $WriteLog
-                                }
-                                else {
-                                    Send-ErrorResponse -Response $response -StatusCode 500 -ErrorMessage "Failed to set processor" -WriteLog $WriteLog
-                                }
-                            }
-                            elseif ($method -eq "DELETE") {
-                                $success = & $RemoveCollectionProcessor -CollectionName $collectionName -DatabasePath $DatabasePath -WriteLog $WriteLog
-                                
-                                if ($success) {
-                                    $body = @{
-                                        success = $true
-                                        message = "Processor removed successfully"
-                                        collection_id = $collectionId
-                                        collection_name = $collectionName
-                                    }
-                                    
-                                    Send-Response -Response $response -Body $body -WriteLog $WriteLog
-                                }
-                                else {
-                                    Send-ErrorResponse -Response $response -StatusCode 404 -ErrorMessage "No processor found for collection" -WriteLog $WriteLog
-                                }
-                            }
-                            else {
-                                Send-ErrorResponse -Response $response -StatusCode 405 -ErrorMessage "Method Not Allowed" -WriteLog $WriteLog
-                            }
-                            break
-                        }
-                        
-                        # POST /collections/{id}/process - Process all dirty files in a collection
-                        "^collections/(\d+)/process$" {
-                            $collectionId = [int]$Matches[1]
-                            
-                            if ($method -eq "POST") {
-                                # Get collection details
-                                $collections = & $GetCollections -FileTrackerBaseUrl $FileTrackerBaseUrl -WriteLog $WriteLog
-                                $collection = $collections | Where-Object { $_.id -eq $collectionId }
-                                
-                                if (-not $collection) {
-                                    Send-ErrorResponse -Response $response -StatusCode 404 -ErrorMessage "Collection not found" -WriteLog $WriteLog
-                                    break
-                                }
-                                
-                                $collectionName = $collection.name
-                                
-                                # Check for custom processor in request
-                                $requestBody = Get-RequestBody -Request $request -AsObject -WriteLog $WriteLog
-                                $customProcessorScript = if ($requestBody.processor_script) { $requestBody.processor_script } else { $null }
-                                $customProcessorParams = if ($requestBody.processor_params) { $requestBody.processor_params } else { @{} }
-                                
-                                # Create script blocks for API calls from inside ProcessCollection
-                                $getCollectionDirtyFilesBlock = $GetCollectionDirtyFiles
-                                $getCollectionDeletedFilesBlock = $GetCollectionDeletedFiles
-                                $getCollectionProcessorBlock = $GetCollectionProcessor
-                                $markFileAsProcessedBlock = $MarkFileAsProcessed
-                                
-                                # Process the collection
-                                $result = & $ProcessCollection -CollectionId $collectionId -CollectionName $collectionName `
-                                    -FileTrackerBaseUrl $FileTrackerBaseUrl -DatabasePath $DatabasePath `
-                                    -TempDir $TempDir -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel -ScriptPath $ScriptPath `
-                                    -UseChunking $UseChunking -ChunkSize $ChunkSize -ChunkOverlap $ChunkOverlap `
-                                    -CustomProcessorScript $customProcessorScript -CustomProcessorParams $customProcessorParams `
-                                    -WriteLog $WriteLog -GetCollectionDirtyFiles $getCollectionDirtyFilesBlock `
-                                    -GetCollectionDeletedFiles $getCollectionDeletedFilesBlock `
-                                    -GetCollectionProcessor $getCollectionProcessorBlock -MarkFileAsProcessed $markFileAsProcessedBlock
-                                
-                                $body = @{
-                                    success = $true
-                                    message = $result.message
-                                    collection_id = $collectionId
-                                    collection_name = $collectionName
-                                    processed_files = $result.processed
-                                    errors = $result.errors
-                                }
-                                
-                                Send-Response -Response $response -Body $body -WriteLog $WriteLog
-                            }
-                            else {
-                                Send-ErrorResponse -Response $response -StatusCode 405 -ErrorMessage "Method Not Allowed" -WriteLog $WriteLog
-                            }
-                            break
-                        }
-                        
-                        # POST /collections/name/{name}/process - Process all dirty files in a collection by name
-                        "^collections/name/([^/]+)/process$" {
-                            $collectionName = $Matches[1]
-                            
-                            if ($method -eq "POST") {
-                                # Get collection details
-                                $collections = & $GetCollections -FileTrackerBaseUrl $FileTrackerBaseUrl -WriteLog $WriteLog
-                                $collection = $collections | Where-Object { $_.name -eq $collectionName }
-                                
-                                if (-not $collection) {
-                                    Send-ErrorResponse -Response $response -StatusCode 404 -ErrorMessage "Collection not found" -WriteLog $WriteLog
-                                    break
-                                }
-                                
-                                # Check for custom processor in request
-                                $requestBody = Get-RequestBody -Request $request -AsObject -WriteLog $WriteLog
-                                $customProcessorScript = if ($requestBody.processor_script) { $requestBody.processor_script } else { $null }
-                                $customProcessorParams = if ($requestBody.processor_params) { $requestBody.processor_params } else { @{} }
-                                
-                                # Create script blocks for API calls from inside ProcessCollection
-                                $getCollectionDirtyFilesBlock = $GetCollectionDirtyFiles
-                                $getCollectionDeletedFilesBlock = $GetCollectionDeletedFiles
-                                $getCollectionProcessorBlock = $GetCollectionProcessor
-                                $markFileAsProcessedBlock = $MarkFileAsProcessed
-                                
-                                # Process the collection
-                                $result = & $ProcessCollection -CollectionName $collectionName `
-                                    -FileTrackerBaseUrl $FileTrackerBaseUrl -DatabasePath $DatabasePath `
-                                    -TempDir $TempDir -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel -ScriptPath $ScriptPath `
-                                    -UseChunking $UseChunking -ChunkSize $ChunkSize -ChunkOverlap $ChunkOverlap `
-                                    -CustomProcessorScript $customProcessorScript -CustomProcessorParams $customProcessorParams `
-                                    -WriteLog $WriteLog -GetCollectionDirtyFiles $getCollectionDirtyFilesBlock `
-                                    -GetCollectionDeletedFiles $getCollectionDeletedFilesBlock `
-                                    -GetCollectionProcessor $getCollectionProcessorBlock -MarkFileAsProcessed $markFileAsProcessedBlock
-                                
-                                $body = @{
-                                    success = $true
-                                    message = $result.message
-                                    collection_name = $collectionName
-                                    processed_files = $result.processed
-                                    errors = $result.errors
-                                }
-                                
-                                Send-Response -Response $response -Body $body -WriteLog $WriteLog
-                            }
-                            else {
-                                Send-ErrorResponse -Response $response -StatusCode 405 -ErrorMessage "Method Not Allowed" -WriteLog $WriteLog
-                            }
-                            break
-                        }
-                        
-                        # POST /process - Process all dirty and deleted files in all collections
-                        "^process$" {
-                            if ($method -eq "POST") {
-                                # Get all collections
-                                $collections = & $GetCollections -FileTrackerBaseUrl $FileTrackerBaseUrl -WriteLog $WriteLog
-                                
-                                if (-not $collections -or $collections.Count -eq 0) {
-                                    Send-ErrorResponse -Response $response -StatusCode 404 -ErrorMessage "No collections found" -WriteLog $WriteLog
-                                    break
-                                }
-                                
-                                $totalProcessed = 0
-                                $totalErrors = 0
-                                $collectionResults = @()
-                                
-                                # Create script blocks for API calls from inside ProcessCollection
-                                $getCollectionDirtyFilesBlock = $GetCollectionDirtyFiles
-                                $getCollectionDeletedFilesBlock = $GetCollectionDeletedFiles
-                                $getCollectionProcessorBlock = $GetCollectionProcessor
-                                $markFileAsProcessedBlock = $MarkFileAsProcessed
-                                
-                                # Process each collection
-                                foreach ($collection in $collections) {
-                                    $collectionName = $collection.name
-                                    $collectionId = $collection.id
-                                    
-                                    & $WriteLog "Processing collection: $collectionName (ID: $collectionId)"
-                                    
-                                    # Process the collection
-                                    $result = & $ProcessCollection -CollectionId $collectionId -CollectionName $collectionName `
-                                        -FileTrackerBaseUrl $FileTrackerBaseUrl -DatabasePath $DatabasePath `
-                                        -TempDir $TempDir -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel -ScriptPath $ScriptPath `
-                                        -UseChunking $UseChunking -ChunkSize $ChunkSize -ChunkOverlap $ChunkOverlap -WriteLog $WriteLog `
-                                        -GetCollectionDirtyFiles $getCollectionDirtyFilesBlock `
-                                        -GetCollectionDeletedFiles $getCollectionDeletedFilesBlock `
-                                        -GetCollectionProcessor $getCollectionProcessorBlock -MarkFileAsProcessed $markFileAsProcessedBlock
-                                    
-                                    $totalProcessed += $result.processed
-                                    $totalErrors += $result.errors
-                                    
-                                    $collectionResults += @{
-                                        collection_id = $collectionId
-                                        collection_name = $collectionName
-                                        processed_files = $result.processed
-                                        errors = $result.errors
-                                    }
-                                }
-                                
-                                $body = @{
-                                    success = $true
-                                    message = "Processing completed for all collections"
-                                    total_processed = $totalProcessed
-                                    total_errors = $totalErrors
-                                    collections = $collectionResults
-                                }
-                                
-                                Send-Response -Response $response -Body $body -WriteLog $WriteLog
-                            }
-                            else {
-                                Send-ErrorResponse -Response $response -StatusCode 405 -ErrorMessage "Method Not Allowed" -WriteLog $WriteLog
-                            }
-                            break
-                        }
-                        
-                        # POST /files/{id}/process - Process a single file by ID
-                        "^files/(\d+)/process$" {
-                            $fileId = [int]$Matches[1]
-                            
-                            if ($method -eq "POST") {
-                                $requestBody = Get-RequestBody -Request $request -AsObject -WriteLog $WriteLog
-                                
-                                # Allow request to specify either collection_id or collection_name
-                                if (-not $requestBody -or (-not $requestBody.collection_id -and -not $requestBody.collection_name)) {
-                                    Send-ErrorResponse -Response $response -StatusCode 400 -ErrorMessage "Either collection_id or collection_name must be provided" -WriteLog $WriteLog
-                                    break
-                                }
-                                
-                                # Determine collection ID and name
-                                $collectionId = $requestBody.collection_id
-                                $collectionName = $requestBody.collection_name
-                                $collections = & $GetCollections -FileTrackerBaseUrl $FileTrackerBaseUrl -WriteLog $WriteLog
-                                
-                                if ($collectionId) {
-                                    # If collection_id provided, use it to get collection
-                                    $collection = $collections | Where-Object { $_.id -eq $collectionId }
-                                    
-                                    if (-not $collection) {
-                                        Send-ErrorResponse -Response $response -StatusCode 404 -ErrorMessage "Collection with ID $collectionId not found" -WriteLog $WriteLog
-                                        break
-                                    }
-                                    
-                                    $collectionName = $collection.name
-                                } elseif ($collectionName) {
-                                    # If collection_name provided, use it to get collection
-                                    $collection = $collections | Where-Object { $_.name -eq $collectionName }
-                                    
-                                    if (-not $collection) {
-                                        Send-ErrorResponse -Response $response -StatusCode 404 -ErrorMessage "Collection with name '$collectionName' not found" -WriteLog $WriteLog
-                                        break
-                                    }
-                                    
-                                    $collectionId = $collection.id
-                                }
-                                
-                                # Get file details from FileTracker
-                                try {
-                                    $file = & $GetFileDetails -CollectionId $collectionId -FileId $fileId `
-                                        -FileTrackerBaseUrl $FileTrackerBaseUrl -WriteLog $WriteLog
-                                    
-                                    if (-not $file) {
-                                        Send-ErrorResponse -Response $response -StatusCode 404 -ErrorMessage "File not found in collection" -WriteLog $WriteLog
-                                        break
-                                    }
-                                    
-                                    # Add collection name to file info
-                                    $file | Add-Member -MemberType NoteProperty -Name "CollectionName" -Value $collectionName
-                                    
-                                    # Get processor script from database or request
-                                    $processorScript = if ($requestBody.processor_script) { $requestBody.processor_script } else { $null }
-                                    $processorParams = if ($requestBody.processor_params) { $requestBody.processor_params } else { @{} }
-                                    
-                                    if (-not $processorScript) {
-                                        $collectionProcessor = & $GetCollectionProcessor -CollectionName $collectionName `
-                                            -DatabasePath $DatabasePath -WriteLog $WriteLog
-                                        
-                                        if ($collectionProcessor) {
-                                    $processorScript = $collectionProcessor.HandlerScript
-                                    $processorParams = $collectionProcessor.HandlerParams
-                                        }
-                                        else {
-                                            # Use default processor if no custom processor found
-                                            $processorScript = Join-Path -Path $ScriptPath -ChildPath "Update-LocalChromaDb.ps1"
-                                        }
-                                    }
-                                    
-                                    # Import the file processing module locally
-                                    $processorFilesModule = Join-Path -Path $PSScriptRoot -ChildPath "Processor-Files.psm1"
-                                    $processorFilesModule = Resolve-Path $processorFilesModule
-                                    Import-Module $processorFilesModule -Force
-                                    
-                                    # Process the file
-                                    $success = Process-CollectionFile -FileInfo $file -HandlerScript $processorScript `
-                                        -HandlerScriptParams $processorParams -TempDir $TempDir `
-                                        -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel -ScriptPath $ScriptPath `
-                                        -UseChunking $UseChunking -ChunkSize $ChunkSize -ChunkOverlap $ChunkOverlap -WriteLog $WriteLog
-                                    
-                                    if ($success) {
-                                        # Mark file as processed using either ID or name
-                                        if ($collectionId) {
-                                            $markResult = & $MarkFileAsProcessed -CollectionId $collectionId -FileId $fileId `
-                                                -FileTrackerBaseUrl $FileTrackerBaseUrl -WriteLog $WriteLog
-                                        } else {
-                                            $markResult = & $MarkFileAsProcessed -CollectionName $collectionName -FileId $fileId `
-                                                -FileTrackerBaseUrl $FileTrackerBaseUrl -WriteLog $WriteLog
-                                        }
-                                        
-                                        if ($markResult) {
-                                            $body = @{
-                                                success = $true
-                                                message = "File processed and marked as processed successfully"
-                                                file_id = $fileId
-                                                file_path = $file.FilePath
-                                                collection_id = $collectionId
-                                                collection_name = $collectionName
-                                            }
-                                            
-                                            Send-Response -Response $response -Body $body -WriteLog $WriteLog
-                                        }
-                                        else {
-                                            Send-ErrorResponse -Response $response -StatusCode 500 -ErrorMessage "File was processed but could not be marked as processed" -WriteLog $WriteLog
-                                        }
-                                    }
-                                    else {
-                                        Send-ErrorResponse -Response $response -StatusCode 500 -ErrorMessage "Failed to process file" -WriteLog $WriteLog
-                                    }
-                                }
-                                catch {
-                                    & $WriteLog "Error processing file: $_" -Level "ERROR"
-                                    Send-ErrorResponse -Response $response -StatusCode 500 -ErrorMessage "Error processing file: $_" -WriteLog $WriteLog
-                                }
-                            }
-                            else {
-                                Send-ErrorResponse -Response $response -StatusCode 405 -ErrorMessage "Method Not Allowed" -WriteLog $WriteLog
-                            }
-                            break
-                        }
-                        
-                        default {
-                            Send-ErrorResponse -Response $response -StatusCode 404 -ErrorMessage "Endpoint not found" -WriteLog $WriteLog
-                            break
+                        $totalProcessed += $result.processed
+                        $totalErrors += $result.errors
+                        $collectionResults += @{ collection_id = $collectionId; collection_name = $collectionName; processed_files = $result.processed; errors = $result.errors }
+                    }
+                    
+                    Write-PodeJsonResponse -Value @{ success = $true; message = "Processing completed for all collections"; total_processed = $totalProcessed; total_errors = $totalErrors; collections = $collectionResults }
+                    
+                } catch {
+                    & $using:WriteLog "Error in POST /process: $_" -Level "ERROR"
+                    Set-PodeResponseStatus -Code 500
+                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                }
+            } -OpenApi @{
+                Summary = "Process dirty files in all collections"
+                Description = "Triggers the processing logic for all dirty files across all known collections."
+                Responses = @{
+                    "200" = @{ Description = "Processing complete for all collections"; Content = @{ "application/json" = @{ Schema = @{ type = "object" } } } }
+                    "404" = @{ Description = "No collections found" }
+                    "500" = @{ Description = "Internal Server Error during processing" }
+                }
+            }
+
+            # POST /api/files/{id}/process
+            Add-PodeRoute -Method Post -Path "$($using:ApiPath)/files/:fileId/process" -ScriptBlock {
+                try {
+                    $fileId = [int]$WebEvent.Parameters['fileId']
+                    $data = $WebEvent.Data
+                    
+                    if (-not $data -or (-not $data.collection_id -and -not $data.collection_name)) { Set-PodeResponseStatus -Code 400; Write-PodeJsonResponse -Value @{ success = $false; error = "Either collection_id or collection_name must be provided" }; return }
+                    
+                    $collectionId = $data.collection_id
+                    $collectionName = $data.collection_name
+                    $collections = & $using:GetCollections -FileTrackerBaseUrl $using:FileTrackerBaseUrl -WriteLog $using:WriteLog
+                    $collection = $null
+                    
+                    if ($collectionId) {
+                        $collection = $collections | Where-Object { $_.id -eq $collectionId }
+                        if (-not $collection) { Set-PodeResponseStatus -Code 404; Write-PodeJsonResponse -Value @{ success = $false; error = "Collection with ID $collectionId not found" }; return }
+                        $collectionName = $collection.name
+                    } elseif ($collectionName) {
+                        $collection = $collections | Where-Object { $_.name -eq $collectionName }
+                        if (-not $collection) { Set-PodeResponseStatus -Code 404; Write-PodeJsonResponse -Value @{ success = $false; error = "Collection with name '$collectionName' not found" }; return }
+                        $collectionId = $collection.id
+                    }
+                    
+                    $file = & $using:GetFileDetails -CollectionId $collectionId -FileId $fileId -FileTrackerBaseUrl $using:FileTrackerBaseUrl -WriteLog $using:WriteLog
+                    if (-not $file) { Set-PodeResponseStatus -Code 404; Write-PodeJsonResponse -Value @{ success = $false; error = "File not found in collection" }; return }
+                    
+                    $file | Add-Member -MemberType NoteProperty -Name "CollectionName" -Value $collectionName
+                    
+                    $processorScript = if ($data.processor_script) { $data.processor_script } else { $null }
+                    $processorParams = if ($data.processor_params) { $data.processor_params } else { @{} }
+                    
+                    if (-not $processorScript) {
+                        $collectionProcessor = & $using:GetCollectionProcessor -CollectionName $collectionName -DatabasePath $using:DatabasePath -WriteLog $using:WriteLog
+                        if ($collectionProcessor) {
+                            $processorScript = $collectionProcessor.HandlerScript
+                            $processorParams = $collectionProcessor.HandlerParams
+                        } else {
+                            $processorScript = Join-Path -Path $using:ScriptPath -ChildPath "Handlers\Update-LocalChromaDb.ps1" # Default processor
                         }
                     }
+                    
+                    # Import the file processing module locally (needed if running in separate runspace/thread)
+                    $processorFilesModule = Join-Path -Path $using:ScriptPath -ChildPath "Modules\Processor-Files.psm1"
+                    Import-Module $processorFilesModule -Force
+                    
+                    $success = Process-CollectionFile -FileInfo $file -HandlerScript $processorScript `
+                        -HandlerScriptParams $processorParams -TempDir $using:TempDir `
+                        -OllamaUrl $using:OllamaUrl -EmbeddingModel $using:EmbeddingModel -ScriptPath $using:ScriptPath `
+                        -UseChunking $using:UseChunking -ChunkSize $using:ChunkSize -ChunkOverlap $using:ChunkOverlap -WriteLog $using:WriteLog
+                    
+                    if ($success) {
+                        $markResult = & $using:MarkFileAsProcessed -CollectionId $collectionId -FileId $fileId -FileTrackerBaseUrl $using:FileTrackerBaseUrl -WriteLog $using:WriteLog
+                        if ($markResult) {
+                            Write-PodeJsonResponse -Value @{ success = $true; message = "File processed and marked successfully"; file_id = $fileId; file_path = $file.FilePath; collection_id = $collectionId; collection_name = $collectionName }
+                        } else {
+                            Set-PodeResponseStatus -Code 500
+                            Write-PodeJsonResponse -Value @{ success = $false; error = "File processed but failed to mark as processed" }
+                        }
+                    } else {
+                        Set-PodeResponseStatus -Code 500
+                        Write-PodeJsonResponse -Value @{ success = $false; error = "Failed to process file" }
+                    }
+                    
+                } catch {
+                    & $using:WriteLog "Error in POST /files/$($WebEvent.Parameters['fileId'])/process: $_" -Level "ERROR"
+                    Set-PodeResponseStatus -Code 500
+                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
                 }
-                else {
-                    Send-ErrorResponse -Response $response -StatusCode 404 -ErrorMessage "API endpoint not found" -WriteLog $WriteLog
+            } -OpenApi @{
+                Summary = "Process a single file by ID"
+                Description = "Triggers the processing logic for a specific file identified by its ID within a given collection (identified by ID or name)."
+                Parameters = @( @{ Name = "fileId"; In = "path"; Required = $true; Schema = @{ type = "integer" } } )
+                RequestBody = @{
+                    Required = $true
+                    Content = @{ "application/json" = @{ Schema = @{ type = "object"; properties = @{ collection_id = @{ type = "integer" }; collection_name = @{ type = "string" }; processor_script = @{ type = "string" }; processor_params = @{ type = "object" } }; description = "Must provide either collection_id or collection_name" } } }
+                }
+                Responses = @{
+                    "200" = @{ Description = "File processed successfully" }
+                    "400" = @{ Description = "Bad Request (missing collection identifier)" }
+                    "404" = @{ Description = "Collection or file not found" }
+                    "500" = @{ Description = "Internal Server Error during processing or marking" }
                 }
             }
-            catch {
-                & $WriteLog "Error processing request: $_" -Level "ERROR"
-                Send-ErrorResponse -Response $response -StatusCode 500 -ErrorMessage "Internal Server Error: $_" -WriteLog $WriteLog
+
+            # Default route for 404
+            Add-PodeRoute -Method * -Path * -ScriptBlock {
+                Set-PodeResponseStatus -Code 404
+                Write-PodeJsonResponse -Value @{ success = $false; error = "Endpoint not found: $($WebEvent.Request.Url.Path)" }
             }
         }
-    }
-    catch {
-        & $WriteLog "Error starting HTTP server: $_" -Level "ERROR"
-        throw $_
-    }
-    finally {
-        # --- Cleanup ---
-        $context.Response.Close()
-        
-        # This block ALWAYS executes, even on Ctrl+C or errors
-        Write-Host "Executing finally block for cleanup..."
 
-        # Check if the listener object was successfully created and is still running
-        if ($listener -ne $null) {
-             Write-Host "Listener object exists."
-            if ($listener.IsListening) {
-                Write-Host "Listener is listening. Stopping listener..."
-                # Stop the listener from accepting new connections
-                $listener.Stop()
-                Write-Host "Listener stopped."
-            } else {
-                Write-Host "Listener was not listening (or already stopped)."
-            }
-            # Close and release resources (calls Stop() implicitly if still listening, then Dispose())
-            Write-Host "Closing/Disposing listener..."
-            $listener.Close() # Close calls Dispose()
-            Write-Host "Listener closed and disposed."
-        } else {
-            Write-Host "Listener object was not created or was null."
-        }
+        & $using:WriteLog "Processor REST API server running at http://localhost:$Port"
+        & $using:WriteLog "Swagger UI available at http://localhost:$Port/swagger"
+        & $using:WriteLog "Press Ctrl+C to stop the server."
 
-        Write-Host "Cleanup finished."
+    } catch {
+        & $using:WriteLog "Fatal error starting Pode server: $_" -Level "ERROR"
+        & $using:WriteLog "$($_.ScriptStackTrace)" -Level "ERROR"
+        throw $_ # Rethrow to allow Start-Processor.ps1 to catch it
     }
 }
 
-Export-ModuleMember -Function Get-RequestBody, Send-Response, Send-ErrorResponse, Start-ProcessorHttpServer
+Export-ModuleMember -Function Start-ProcessorHttpServer

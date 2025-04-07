@@ -1,4 +1,7 @@
 param (
+    [Parameter(Mandatory=$false)]
+    [string]$ListenAddress = "localhost",
+    
     [Parameter(Mandatory=$true)]
     [string]$InstallPath,
     
@@ -11,6 +14,9 @@ param (
     [Parameter(Mandatory=$false)]
     [string]$ApiPath = "/api"
 )
+
+# Import Pode Module
+Import-Module Pode -ErrorAction Stop
 
 $TempDir = Join-Path -Path $InstallPath -ChildPath "Temp"
 if (-not (Test-Path -Path $TempDir)) 
@@ -28,7 +34,7 @@ function Write-Log {
         [string]$Message,
 
         [Parameter(Mandatory=$false)]
-        [string]$ForegroundColor,
+        [string]$ForegroundColor = "Green", # Default to Green for Pode logs
         
         [Parameter(Mandatory=$false)]
         [string]$Level = "INFO"
@@ -45,13 +51,12 @@ function Write-Log {
         Write-Host $logMessage -ForegroundColor Yellow
     }
     else {
-        Write-Host $logMessage -ForegroundColor Green
+        Write-Host $logMessage -ForegroundColor $ForegroundColor # Use specified or default color
     }
     
     # Write to log file
     Add-Content -Path $logFilePath -Value $logMessage
 }
-
 
 # Compute DatabasePath from InstallationPath
 $DatabasePath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
@@ -65,808 +70,434 @@ $sqliteAssemblyPath2 = "$InstallPath\SQLitePCLRaw.core.dll"
 $sqliteAssemblyPath3 = "$InstallPath\SQLitePCLRaw.provider.e_sqlite3.dll"
 
 # Load SQLite assembly
-Add-Type -Path $sqliteAssemblyPath
-Add-Type -Path $sqliteAssemblyPath2
-Add-Type -Path $sqliteAssemblyPath3
+try {
+    Add-Type -Path $sqliteAssemblyPath
+    Add-Type -Path $sqliteAssemblyPath2
+    Add-Type -Path $sqliteAssemblyPath3
+} catch {
+    Write-Log "Error loading SQLite assemblies: $_" -Level "ERROR"
+    Write-Log "Please ensure required DLLs are in $InstallPath" -Level "ERROR"
+    exit 1
+}
 
+# --- Start Pode Server ---
+try {
+    Write-Log "Starting FileTracker REST API server using Pode..."
+    Write-Log "Installation directory: $InstallPath"
+    Write-Log "Using database: $DatabasePath"
 
-# Set up HTTP listener
-$prefix = "http://localhost:$Port$ApiPath"
-$listener = New-Object System.Net.HttpListener
-$listener.Prefixes.Add($prefix + "/")
+    Start-PodeServer { # Assuming Start-PodeServer still needs to be called to run the server block
+        New-PodeLoggingMethod -Terminal | Enable-PodeErrorLogging
+        Add-PodeEndpoint -Address $ListenAddress -Port $Port -Protocol Http
 
-# API request handling function
-function Process-Request {
-    param (
-        [System.Net.HttpListenerRequest]$Request,
-        [System.Net.HttpListenerResponse]$Response
-    )
-    
-    # Parse the URL path to determine the endpoint
-    $endpoint = $Request.Url.LocalPath.Substring($ApiPath.Length)
-    
-    # Setup response headers
-    $Response.ContentType = "application/json"
-    $Response.Headers.Add("Access-Control-Allow-Origin", "*")
-    $Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-    $Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type")
-    
-    # Handle OPTIONS requests (CORS preflight)
-    if ($Request.HttpMethod -eq "OPTIONS") {
-        $Response.StatusCode = 200
-        $Response.Close()
-        return
-    }
-
-    try {
-        # Parse collection ID if present in the endpoint path
-        $collectionId = $null
-        $collectionMatch = $endpoint -match "^/collections/(\d+)"
-        if ($collectionMatch) {
-            $collectionId = [int]$Matches[1]
-        }
-        
-        # Match the endpoint against patterns and handle accordingly
-        switch -regex ($endpoint) {
-            # Collections endpoints
-            "^/collections$" {
-                if ($Request.HttpMethod -eq "GET") {
-                    # Get all collections
-                    $collectionsResult = Get-Collections -DatabasePath $DatabasePath
-                    $result = @{
-                        success = $true
-                        collections = $collectionsResult
-                        count = $collectionsResult.Count
-                    }
-                    $Response.StatusCode = 200
+        # --- API Routes ---
+        # GET /api/collections
+        Add-PodeRoute -Method Get -Path "$ApiPath/collections" -ScriptBlock {
+            try {
+                $collectionsResult = Get-Collections -DatabasePath $using:DatabasePath
+                $result = @{
+                    success = $true
+                    collections = $collectionsResult
+                    count = $collectionsResult.Count
                 }
-                elseif ($Request.HttpMethod -eq "POST") {
-                    # Create a new collection
-                    $reader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)
-                    $body = $reader.ReadToEnd()
-                    $data = ConvertFrom-Json $body
-                    
-                    if ($data.name) {
-                        $newCollection = New-Collection -Name $data.name -Description $data.description -SourceFolder $data.sourceFolder -InstallPath $InstallPath
-                        
-                        if ($newCollection) {
-                            $Response.StatusCode = 201 # Created
-                            $result = @{
-                                success = $true
-                                message = "Collection created successfully"
-                                collection = $newCollection
-                            }
-                        }
-                        else {
-                            $Response.StatusCode = 500 # Internal Server Error
-                            $result = @{
-                                success = $false
-                                error = "Failed to create collection"
-                            }
-                        }
-                    }
-                    else {
-                        $Response.StatusCode = 400 # Bad Request
-                        $result = @{
-                            success = $false
-                            error = "Invalid request. Requires 'name' field."
-                        }
-                    }
-                }
-                else {
-                    $Response.StatusCode = 405 # Method Not Allowed
-                    $result = @{
-                        success = $false
-                        error = "Method not allowed. Use GET or POST."
-                    }
-                }
-                break
+                Write-PodeJsonResponse -Value $result
+            } catch {
+                Write-Log "Error in GET /collections: $_" -Level "ERROR"
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
-            
-            # Specific collection endpoint
-            "^/collections/\d+$" {
-                if ($Request.HttpMethod -eq "GET") {
-                    # Get collection by ID
-                    $collection = Get-Collection -Id $collectionId -DatabasePath $DatabasePath
+        }   
+
+        # POST /api/collections
+        Add-PodeRoute -Method Post -Path "$ApiPath/collections" -ScriptBlock {
+            try {
+                $data = $WebEvent.Data
+                if ($data.name) {
+                    $newCollection = New-Collection -Name $data.name -Description $data.description -SourceFolder $data.sourceFolder -InstallPath $using:InstallPath
                     
-                    if ($collection) {
-                        $Response.StatusCode = 200
+                    if ($newCollection) {
+                        Set-PodeResponseStatus -Code 201 # Created
                         $result = @{
                             success = $true
-                            collection = $collection
+                            message = "Collection created successfully"
+                            collection = $newCollection
                         }
+                    } else {
+                        Set-PodeResponseStatus -Code 500 # Internal Server Error
+                        $result = @{ success = $false; error = "Failed to create collection" }
                     }
-                    else {
-                        $Response.StatusCode = 404 # Not Found
-                        $result = @{
-                            success = $false
-                            error = "Collection not found"
-                        }
-                    }
+                } else {
+                    Set-PodeResponseStatus -Code 400 # Bad Request
+                    $result = @{ success = $false; error = "Invalid request. Requires 'name' field." }
                 }
-                elseif ($Request.HttpMethod -eq "PUT") {
-                    # Update collection
-                    $reader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)
-                    $body = $reader.ReadToEnd()
-                    $data = ConvertFrom-Json $body
-                    
-                    $updateParams = @{
-                        Id = $collectionId
-                        DatabasePath = $DatabasePath
-                    }
-                    
-                    if ($data.name) {
-                        $updateParams["Name"] = $data.name
-                    }
-                    
-                    if ($PSBoundParameters.ContainsKey('Description')) {
-                        $updateParams["Description"] = $data.description
-                    }
-                    
-                    $success = Update-Collection @updateParams
-                    
-                    if ($success) {
-                        $Response.StatusCode = 200
-                        $updatedCollection = Get-Collection -Id $collectionId -DatabasePath $DatabasePath
-                        $result = @{
-                            success = $true
-                            message = "Collection updated successfully"
-                            collection = $updatedCollection
-                        }
-                    }
-                    else {
-                        $Response.StatusCode = 500 # Internal Server Error
-                        $result = @{
-                            success = $false
-                            error = "Failed to update collection"
-                        }
-                    }
-                }
-                elseif ($Request.HttpMethod -eq "DELETE") {
-                    # Delete collection
-                    $success = Remove-Collection -Id $collectionId -DatabasePath $DatabasePath
-                    
-                    if ($success) {
-                        $Response.StatusCode = 200
-                        $result = @{
-                            success = $true
-                            message = "Collection deleted successfully"
-                        }
-                    }
-                    else {
-                        $Response.StatusCode = 500 # Internal Server Error
-                        $result = @{
-                            success = $false
-                            error = "Failed to delete collection"
-                        }
-                    }
-                }
-                else {
-                    $Response.StatusCode = 405 # Method Not Allowed
-                    $result = @{
-                        success = $false
-                        error = "Method not allowed. Use GET, PUT, or DELETE."
-                    }
-                }
-                break
+                Write-PodeJsonResponse -Value $result
+            } catch {
+                Write-Log "Error in POST /collections: $_" -Level "ERROR"
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
-            
-            # Collection settings endpoint
-            "^/collections/\d+/settings$" {
-                if ($Request.HttpMethod -eq "GET") {
-                    # Get collection settings
-                    $collection = Get-Collection -Id $collectionId -DatabasePath $DatabasePath
-                    
-                    if ($collection) {
-                        # Get additional settings like watch status if applicable
-                        $watchStatus = $false
-                        $watchJob = Get-Job -Name "Watch_Collection_$collectionId" -ErrorAction SilentlyContinue
-                        if ($watchJob) {
-                            $watchStatus = $true
-                        }
-                        
-                        $Response.StatusCode = 200
-                        $result = @{
-                            success = $true
-                            collection = $collection
-                            settings = @{
-                                isWatching = $watchStatus
-                                watchJob = if ($watchStatus) { $watchJob.Id } else { $null }
-                            }
-                        }
-                    }
-                    else {
-                        $Response.StatusCode = 404 # Not Found
-                        $result = @{
-                            success = $false
-                            error = "Collection not found"
-                        }
-                    }
-                }
-                else {
-                    $Response.StatusCode = 405 # Method Not Allowed
-                    $result = @{
-                        success = $false
-                        error = "Method not allowed. Use GET."
-                    }
-                }
-                break
-            }
-            
-            # Collection watch endpoint
-            "^/collections/\d+/watch$" {
-                if ($Request.HttpMethod -eq "POST") {
-                    # Start or stop watching collection
-                    $reader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)
-                    $body = $reader.ReadToEnd()
-                    $data = ConvertFrom-Json $body
-                    
-                    # Get collection info first
-                    $collection = Get-Collection -Id $collectionId -DatabasePath $DatabasePath
-                    if (-not $collection) {
-                        $Response.StatusCode = 404 # Not Found
-                        $result = @{
-                            success = $false
-                            error = "Collection not found"
-                        }
-                        break
-                    }
-                    
-                    # Check if we need to start or stop watching
-                    $action = $data.action
-                    if ($action -eq "start") {
-                        # Check if already watching
-                        $watchJob = Get-Job -Name "Watch_Collection_$collectionId" -ErrorAction SilentlyContinue
-                        if ($watchJob) {
-                            $Response.StatusCode = 409 # Conflict
-                            $result = @{
-                                success = $false
-                                error = "Collection is already being watched"
-                                job = $watchJob.Id
-                            }
-                            break
-                        }
-                        
-                        # Determine watch parameters
-                        $watchParams = @{
-                            DirectoryToWatch = $collection.source_folder
-                            ProcessInterval = $data.processInterval ?? 15
-                            DatabasePath = $DatabasePath
-                            CollectionId = $collectionId
-                        }
-                        
-                        if ($data.fileFilter) {
-                            $watchParams["FileFilter"] = $data.fileFilter
-                        }
-                        
-                        if ($data.watchCreated -eq $true) {
-                            $watchParams["WatchCreated"] = $true
-                        }
-                        
-                        if ($data.watchModified -eq $true) {
-                            $watchParams["WatchModified"] = $true
-                        }
-                        
-                        if ($data.watchDeleted -eq $true) {
-                            $watchParams["WatchDeleted"] = $true
-                        }
-                        
-                        if ($data.watchRenamed -eq $true) {
-                            $watchParams["WatchRenamed"] = $true
-                        }
-                        
-                        if ($data.includeSubdirectories -eq $true) {
-                            $watchParams["IncludeSubdirectories"] = $true
-                        }
-                        
-                        if ($data.omitFolders -and $data.omitFolders.Count -gt 0) {
-                            $watchParams["OmitFolders"] = $data.omitFolders
-                        }
-                        else {
-                            $watchParams["OmitFolders"] = $OmitFolders
-                        }
-                        
-                        # Start watch job
-                        try {
-                            $watchScriptPath = Join-Path $PSScriptRoot "Watch-FileTracker.ps1"
-                            $job = Start-Job -Name "Watch_Collection_$collectionId" -ScriptBlock {
-                                param($scriptPath, $params)
-                                & $scriptPath @params
-                            } -ArgumentList $watchScriptPath, $watchParams
-                            
-                            $Response.StatusCode = 200
-                            $result = @{
-                                success = $true
-                                message = "File watching started for collection"
-                                collection_id = $collectionId
-                                job_id = $job.Id
-                                parameters = $watchParams
-                            }
-                        }
-                        catch {
-                            $Response.StatusCode = 500 # Internal Server Error
-                            $result = @{
-                                success = $false
-                                error = "Failed to start watching: $_"
-                            }
-                        }
-                    }
-                    elseif ($action -eq "stop") {
-                        # Check if actually watching
-                        $watchJob = Get-Job -Name "Watch_Collection_$collectionId" -ErrorAction SilentlyContinue
-                        if (-not $watchJob) {
-                            $Response.StatusCode = 404 # Not Found
-                            $result = @{
-                                success = $false
-                                error = "Collection is not being watched"
-                            }
-                            break
-                        }
-                        
-                        # Stop the job
-                        try {
-                            Stop-Job -Id $watchJob.Id
-                            Remove-Job -Id $watchJob.Id
-                            
-                            $Response.StatusCode = 200
-                            $result = @{
-                                success = $true
-                                message = "File watching stopped for collection"
-                                collection_id = $collectionId
-                            }
-                        }
-                        catch {
-                            $Response.StatusCode = 500 # Internal Server Error
-                            $result = @{
-                                success = $false
-                                error = "Failed to stop watching: $_"
-                            }
-                        }
-                    }
-                    else {
-                        $Response.StatusCode = 400 # Bad Request
-                        $result = @{
-                            success = $false
-                            error = "Invalid action. Use 'start' or 'stop'."
-                        }
-                    }
-                }
-                else {
-                    $Response.StatusCode = 405 # Method Not Allowed
-                    $result = @{
-                        success = $false
-                        error = "Method not allowed. Use POST."
-                    }
-                }
-                break
-            }
-            
-            # Collection files endpoint
-            "^/collections/\d+/files$" {
-                if ($Request.HttpMethod -eq "GET") {
-                    # Get files in collection
-                    $dirty = $Request.QueryString["dirty"] -eq "true"
-                    $processed = $Request.QueryString["processed"] -eq "true"
-                    $deleted = $Request.QueryString["deleted"] -eq "true"
-                    
-                    $params = @{
-                        CollectionId = $collectionId
-                        DatabasePath = $DatabasePath
-                    }
-                    
-                    if ($dirty) {
-                        $params["DirtyOnly"] = $true
-                    }
-                    elseif ($processed) {
-                        $params["ProcessedOnly"] = $true
-                    }
-                    
-                    if ($deleted) {
-                        $params["DeletedOnly"] = $true
-                    }
-                    
-                    $files = Get-CollectionFiles @params
-                    
-                    $Response.StatusCode = 200
-                    $result = @{
-                        success = $true
-                        files = $files
-                        count = $files.Count
-                        collection_id = $collectionId
-                    }
-                }
-                elseif ($Request.HttpMethod -eq "POST") {
-                    # Add a file to the collection
-                    $reader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)
-                    $body = $reader.ReadToEnd()
-                    $data = ConvertFrom-Json $body
-                    
-                    if ($data.filePath) {
-                        $params = @{
-                            CollectionId = $collectionId
-                            FilePath = $data.filePath
-                            DatabasePath = $DatabasePath
-                        }
-                        
-                        if ($data.originalUrl) {
-                            $params["OriginalUrl"] = $data.originalUrl
-                        }
-                        
-                        if ($null -ne $data.dirty) {
-                            $params["Dirty"] = $data.dirty
-                        }
-                        
-                        $result = Add-FileToCollection @params
-                        
-                        if ($result) {
-                            $Response.StatusCode = 200
-                            $result = @{
-                                success = $true
-                                message = if ($result.updated) { "File updated in collection" } else { "File added to collection" }
-                                file = $result
-                            }
-                        }
-                        else {
-                            $Response.StatusCode = 500 # Internal Server Error
-                            $result = @{
-                                success = $false
-                                error = "Failed to add file to collection"
-                            }
-                        }
-                    }
-                    else {
-                        $Response.StatusCode = 400 # Bad Request
-                        $result = @{
-                            success = $false
-                            error = "Invalid request. Requires 'filePath' field."
-                        }
-                    }
-                }
-                elseif ($Request.HttpMethod -eq "PUT") {
-                    # Mark all files in collection as dirty or processed
-                    $reader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)
-                    $body = $reader.ReadToEnd()
-                    $data = ConvertFrom-Json $body
-                    
-                    if ($null -ne $data.dirty) {
-                        $success = Update-AllFilesStatus -Dirty $data.dirty -DatabasePath $DatabasePath -CollectionId $collectionId
-                        
-                        if ($success) {
-                            $Response.StatusCode = 200
-                            $result = @{
-                                success = $true
-                                message = "All files in collection updated successfully"
-                                dirty = $data.dirty
-                            }
-                        }
-                        else {
-                            $Response.StatusCode = 500 # Internal Server Error
-                            $result = @{
-                                success = $false
-                                error = "Failed to update files in collection"
-                            }
-                        }
-                    }
-                    else {
-                        $Response.StatusCode = 400 # Bad Request
-                        $result = @{
-                            success = $false
-                            error = "Invalid request. Requires 'dirty' field."
-                        }
-                    }
-                }
-                else {
-                    $Response.StatusCode = 405 # Method Not Allowed
-                    $result = @{
-                        success = $false
-                        error = "Method not allowed. Use GET, POST, or PUT."
-                    }
-                }
-                break
-            }
-            
-            # Remove file from collection endpoint
-            "^/collections/\d+/files/(\d+)$" {
-                $fileId = [int]$Matches[1]
+        }  
+
+        # GET /api/collections/{id}
+        Add-PodeRoute -Method Get -Path "$ApiPath/collections/:collectionId" -ScriptBlock {
+            try {
+                $collectionId = [int]$WebEvent.Parameters['collectionId']
+                $collection = Get-Collection -Id $collectionId -DatabasePath $using:DatabasePath
                 
-                if ($Request.HttpMethod -eq "DELETE") {
-                    # Remove file from collection
-                    $success = Remove-FileFromCollection -FileId $fileId -DatabasePath $DatabasePath
+                if ($collection) {
+                    $result = @{ success = $true; collection = $collection }
+                } else {
+                    Set-PodeResponseStatus -Code 404 # Not Found
+                    $result = @{ success = $false; error = "Collection not found" }
+                }
+                Write-PodeJsonResponse -Value $result
+            } catch {
+                Write-Log "Error in GET /collections/$($WebEvent.Parameters['collectionId']): $_" -Level "ERROR"
+                Set-PodeResponseStatus -Code 500
+                Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+            }
+        }  
+
+        # PUT /api/collections/{id}
+        Add-PodeRoute -Method Put -Path "$ApiPath/collections/:collectionId" -ScriptBlock {
+            try {
+                $collectionId = [int]$WebEvent.Parameters['collectionId']
+                $data = $WebEvent.Data
+                
+                $updateParams = @{
+                    Id = $collectionId
+                    DatabasePath = $using:DatabasePath
+                }
+                
+                if ($data.PSObject.Properties.Name -contains 'name') { $updateParams["Name"] = $data.name }
+                if ($data.PSObject.Properties.Name -contains 'description') { $updateParams["Description"] = $data.description }
+                
+                $success = Update-Collection @updateParams
+                
+                if ($success) {
+                    $updatedCollection = Get-Collection -Id $collectionId -DatabasePath $using:DatabasePath
+                    $result = @{ success = $true; message = "Collection updated successfully"; collection = $updatedCollection }
+                } else {
+                    Set-PodeResponseStatus -Code 500 # Internal Server Error
+                    $result = @{ success = $false; error = "Failed to update collection" }
+                }
+                Write-PodeJsonResponse -Value $result
+            } catch {
+                Write-Log "Error in PUT /collections/$($WebEvent.Parameters['collectionId']): $_" -Level "ERROR"
+                Set-PodeResponseStatus -Code 500
+                Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+            }
+        }   
+
+        # DELETE /api/collections/{id}
+        Add-PodeRoute -Method Delete -Path "$ApiPath/collections/:collectionId" -ScriptBlock {
+            try {
+                $collectionId = [int]$WebEvent.Parameters['collectionId']
+                $success = Remove-Collection -Id $collectionId -DatabasePath $using:DatabasePath
+                
+                if ($success) {
+                    $result = @{ success = $true; message = "Collection deleted successfully" }
+                } else {
+                    Set-PodeResponseStatus -Code 500 # Internal Server Error
+                    $result = @{ success = $false; error = "Failed to delete collection" }
+                }
+                Write-PodeJsonResponse -Value $result
+            } catch {
+                Write-Log "Error in DELETE /collections/$($WebEvent.Parameters['collectionId']): $_" -Level "ERROR"
+                Set-PodeResponseStatus -Code 500
+                Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+            }
+        }
+
+        # GET /api/collections/{id}/settings
+        Add-PodeRoute -Method Get -Path "$ApiPath/collections/:collectionId/settings" -ScriptBlock {
+            try {
+                $collectionId = [int]$WebEvent.Parameters['collectionId']
+                $collection = Get-Collection -Id $collectionId -DatabasePath $using:DatabasePath
+                
+                if ($collection) {
+                    $watchStatus = $false
+                    $watchJob = Get-Job -Name "Watch_Collection_$collectionId" -ErrorAction SilentlyContinue
+                    if ($watchJob) { $watchStatus = $true }
+                    
+                    $result = @{
+                        success = $true
+                        collection = $collection
+                        settings = @{ isWatching = $watchStatus; watchJobId = if ($watchStatus) { $watchJob.Id } else { $null } }
+                    }
+                } else {
+                    Set-PodeResponseStatus -Code 404 # Not Found
+                    $result = @{ success = $false; error = "Collection not found" }
+                }
+                Write-PodeJsonResponse -Value $result
+            } catch {
+                Write-Log "Error in GET /collections/$($WebEvent.Parameters['collectionId'])/settings: $_" -Level "ERROR"
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+            }
+        }  
+
+        # POST /api/collections/{id}/watch
+        Add-PodeRoute -Method Post -Path "$ApiPath/collections/:collectionId/watch" -ScriptBlock {
+            try {
+                $collectionId = [int]$WebEvent.Parameters['collectionId']
+                $data = $WebEvent.Data
+                $action = $data.action
+                
+                $collection = Get-Collection -Id $collectionId -DatabasePath $using:DatabasePath
+                if (-not $collection) {
+                    Set-PodeResponseStatus -Code 404; Write-PodeJsonResponse -Value @{ success = $false; error = "Collection not found" }; return
+                }
+                
+                if ($action -eq "start") {
+                    $watchJob = Get-Job -Name "Watch_Collection_$collectionId" -ErrorAction SilentlyContinue
+                    if ($watchJob) {
+                        Set-PodeResponseStatus -Code 409; Write-PodeJsonResponse -Value @{ success = $false; error = "Collection is already being watched"; job_id = $watchJob.Id }; return
+                    }
+                    
+                    $watchParams = @{
+                        DirectoryToWatch = $collection.source_folder
+                        ProcessInterval = $data.processInterval ?? 15
+                        DatabasePath = $using:DatabasePath
+                        CollectionId = $collectionId
+                    }
+                    if ($data.fileFilter) { $watchParams["FileFilter"] = $data.fileFilter }
+                    if ($data.watchCreated -eq $true) { $watchParams["WatchCreated"] = $true }
+                    if ($data.watchModified -eq $true) { $watchParams["WatchModified"] = $true }
+                    if ($data.watchDeleted -eq $true) { $watchParams["WatchDeleted"] = $true }
+                    if ($data.watchRenamed -eq $true) { $watchParams["WatchRenamed"] = $true }
+                    if ($data.includeSubdirectories -eq $true) { $watchParams["IncludeSubdirectories"] = $true }
+                    $watchParams["OmitFolders"] = if ($data.omitFolders -and $data.omitFolders.Count -gt 0) { $data.omitFolders } else { $using:OmitFolders }
+                    
+                    $watchScriptPath = Join-Path $PSScriptRoot "Watch-FileTracker.ps1"
+                    $job = Start-Job -Name "Watch_Collection_$collectionId" -ScriptBlock {
+                        param($scriptPath, $params)
+                        & $scriptPath @params
+                    } -ArgumentList $watchScriptPath, $watchParams
+                    
+                    $result = @{ success = $true; message = "File watching started"; collection_id = $collectionId; job_id = $job.Id; parameters = $watchParams }
+                    
+                } elseif ($action -eq "stop") {
+                    $watchJob = Get-Job -Name "Watch_Collection_$collectionId" -ErrorAction SilentlyContinue
+                    if (-not $watchJob) {
+                        Set-PodeResponseStatus -Code 404; Write-PodeJsonResponse -Value @{ success = $false; error = "Collection is not being watched" }; return
+                    }
+                    Stop-Job -Id $watchJob.Id; Remove-Job -Id $watchJob.Id
+                    $result = @{ success = $true; message = "File watching stopped"; collection_id = $collectionId }
+                    
+                } else {
+                    Set-PodeResponseStatus -Code 400; Write-PodeJsonResponse -Value @{ success = $false; error = "Invalid action. Use 'start' or 'stop'." }; return
+                }
+                Write-PodeJsonResponse -Value $result
+                
+            } catch {
+                Write-Log "Error in POST /collections/$($WebEvent.Parameters['collectionId'])/watch: $_" -Level "ERROR"
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+            }
+        }  
+
+        # GET /api/collections/{id}/files
+        Add-PodeRoute -Method Get -Path "$ApiPath/collections/:collectionId/files" -ScriptBlock {
+            try {
+                $collectionId = [int]$WebEvent.Parameters['collectionId']
+                $dirty = $WebEvent.Request.Query["dirty"] -eq "true"
+                $processed = $WebEvent.Request.Query["processed"] -eq "true"
+                $deleted = $WebEvent.Request.Query["deleted"] -eq "true"
+                
+                $params = @{ CollectionId = $collectionId; DatabasePath = $using:DatabasePath }
+                if ($dirty) { $params["DirtyOnly"] = $true }
+                elseif ($processed) { $params["ProcessedOnly"] = $true }
+                if ($deleted) { $params["DeletedOnly"] = $true }
+                
+                $files = Get-CollectionFiles @params
+                $result = @{ success = $true; files = $files; count = $files.Count; collection_id = $collectionId }
+                Write-PodeJsonResponse -Value $result
+                
+            } catch {
+                Write-Log "Error in GET /collections/$($WebEvent.Parameters['collectionId'])/files: $_" -Level "ERROR"
+                Set-PodeResponseStatus -Code 500
+                Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+            }
+        }  
+
+        # POST /api/collections/{id}/files
+        Add-PodeRoute -Method Post -Path "$ApiPath/collections/:collectionId/files" -ScriptBlock {
+            try {
+                $collectionId = [int]$WebEvent.Parameters['collectionId']
+                $data = $WebEvent.Data
+                
+                if ($data.filePath) {
+                    $params = @{ CollectionId = $collectionId; FilePath = $data.filePath; DatabasePath = $using:DatabasePath }
+                    if ($data.originalUrl) { $params["OriginalUrl"] = $data.originalUrl }
+                    if ($null -ne $data.dirty) { $params["Dirty"] = $data.dirty }
+                    
+                    $addResult = Add-FileToCollection @params
+                    
+                    if ($addResult) {
+                        $result = @{ success = $true; message = if ($addResult.updated) { "File updated" } else { "File added" }; file = $addResult }
+                    } else {
+                        Set-PodeResponseStatus -Code 500; $result = @{ success = $false; error = "Failed to add/update file" }
+                    }
+                } else {
+                    Set-PodeResponseStatus -Code 400; $result = @{ success = $false; error = "Invalid request. Requires 'filePath' field." }
+                }
+                Write-PodeJsonResponse -Value $result
+                
+            } catch {
+                Write-Log "Error in POST /collections/$($WebEvent.Parameters['collectionId'])/files: $_" -Level "ERROR"
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+            }
+        }  
+
+        # PUT /api/collections/{id}/files
+        Add-PodeRoute -Method Put -Path "$ApiPath/collections/:collectionId/files" -ScriptBlock {
+            try {
+                $collectionId = [int]$WebEvent.Parameters['collectionId']
+                $data = $WebEvent.Data
+                
+                if ($null -ne $data.dirty) {
+                    $success = Update-AllFilesStatus -Dirty $data.dirty -DatabasePath $using:DatabasePath -CollectionId $collectionId
+                    if ($success) {
+                        $result = @{ success = $true; message = "All files updated"; dirty = $data.dirty }
+                    } else {
+                        Set-PodeResponseStatus -Code 500; $result = @{ success = $false; error = "Failed to update files" }
+                    }
+                } else {
+                    Set-PodeResponseStatus -Code 400; $result = @{ success = $false; error = "Invalid request. Requires 'dirty' field." }
+                }
+                Write-PodeJsonResponse -Value $result
+                
+            } catch {
+                Write-Log "Error in PUT /collections/$($WebEvent.Parameters['collectionId'])/files: $_" -Level "ERROR"
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+            }
+        }   
+
+        # DELETE /api/collections/{id}/files/{fileId}
+        Add-PodeRoute -Method Delete -Path "$ApiPath/collections/:collectionId/files/:fileId" -ScriptBlock {
+            try {
+                # $collectionId = [int]$WebEvent.Parameters['collectionId'] # Not needed for Remove-FileFromCollection
+                $fileId = [int]$WebEvent.Parameters['fileId']
+                $success = Remove-FileFromCollection -FileId $fileId -DatabasePath $using:DatabasePath
+                
+                if ($success) {
+                    $result = @{ success = $true; message = "File removed from collection" }
+                } else {
+                    Set-PodeResponseStatus -Code 500; $result = @{ success = $false; error = "Failed to remove file" }
+                }
+                Write-PodeJsonResponse -Value $result
+                
+            } catch {
+                Write-Log "Error in DELETE /collections/.../files/$($WebEvent.Parameters['fileId']): $_" -Level "ERROR"
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+            }
+        }  
+
+        # PUT /api/collections/{id}/files/{fileId}
+        Add-PodeRoute -Method Put -Path "$ApiPath/collections/:collectionId/files/:fileId" -ScriptBlock {
+            try {
+                $collectionId = [int]$WebEvent.Parameters['collectionId']
+                $fileId = [int]$WebEvent.Parameters['fileId']
+                $data = $WebEvent.Data
+                
+                if ($null -ne $data.dirty) {
+                    # Update-FileStatus.ps1 is not directly available, call the function from the imported module
+                    $success = Update-FileStatus -FileId $fileId -Dirty $data.dirty -DatabasePath $using:DatabasePath -CollectionId $collectionId
                     
                     if ($success) {
-                        $Response.StatusCode = 200
-                        $result = @{
-                            success = $true
-                            message = "File removed from collection"
-                        }
-                    }
-                    else {
-                        $Response.StatusCode = 500 # Internal Server Error
-                        $result = @{
-                            success = $false
-                            error = "Failed to remove file from collection"
-                        }
-                    }
-                }
-                elseif ($Request.HttpMethod -eq "PUT") {
-                    # Update file status
-                    $reader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)
-                    $body = $reader.ReadToEnd()
-                    $data = ConvertFrom-Json $body
-                    
-                    if ($null -ne $data.dirty) {
-                        # First get the file path
-                        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+                        $result = @{ success = $true; message = "File status updated"; file_id = $fileId; dirty = $data.dirty }
+                    } else {
+                        # Check if file exists before declaring internal error
+                        $connection = Get-DatabaseConnection -DatabasePath $using:DatabasePath
                         $command = $connection.CreateCommand()
-                        $command.CommandText = "SELECT FilePath FROM files WHERE id = @FileId AND collection_id = @CollectionId"
+                        $command.CommandText = "SELECT 1 FROM files WHERE id = @FileId AND collection_id = @CollectionId"
                         $command.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FileId", $fileId)))
                         $command.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $collectionId)))
-                        
-                        $filePath = $command.ExecuteScalar()
+                        $fileExists = $command.ExecuteScalar()
                         $connection.Close()
-                        
-                        if ($filePath) {
-                            $scriptPath =  "$PSScriptRoot\Update-FileStatus.ps1"
-                            $success = & $scriptPath -FileId $fileId -Dirty $data.dirty -DatabasePath $DatabasePath -CollectionId $collectionId
-                            
-                            if ($success) {
-                                $Response.StatusCode = 200
-                                $result = @{
-                                    success = $true
-                                    message = "File status updated successfully"
-                                    file_id = $fileId
-                                    dirty = $data.dirty
-                                }
-                            }
-                            else {
-                                $Response.StatusCode = 500 # Internal Server Error
-                                $result = @{
-                                    success = $false
-                                    error = "Failed to update file status"
-                                }
-                            }
-                        }
-                        else {
-                            $Response.StatusCode = 404 # Not Found
-                            $result = @{
-                                success = $false
-                                error = "File not found in collection"
-                            }
-                        }
-                    }
-                    else {
-                        $Response.StatusCode = 400 # Bad Request
-                        $result = @{
-                            success = $false
-                            error = "Invalid request. Requires 'dirty' field."
-                        }
-                    }
-                }
-                else {
-                    $Response.StatusCode = 405 # Method Not Allowed
-                    $result = @{
-                        success = $false
-                        error = "Method not allowed. Use DELETE or PUT."
-                    }
-                }
-                break
-            }
-            
-            # Update collection files - scan for changes
-            "^/collections/\d+/update$" {
-                if ($Request.HttpMethod -eq "POST") {
-                    # Get collection source folder
-                    $collection = Get-Collection -Id $collectionId -DatabasePath $DatabasePath
-                    
-                    if (-not $collection -or -not $collection.source_folder) {
-                        $Response.StatusCode = 400 # Bad Request
-                        $result = @{
-                            success = $false
-                            error = "Collection source folder not defined"
-                        }
-                        break
-                    }
-                    
-                    # Get custom omit folders from query string or body
-                    $customOmitFolders = $OmitFolders
-                    
-                    # Check for body content with custom omit folders
-                    if ($Request.HasEntityBody) {
-                        $reader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)
-                        $body = $reader.ReadToEnd()
-                        if ($body) {
-                            try {
-                                $data = ConvertFrom-Json $body
-                                if ($data.omitFolders -and $data.omitFolders.Count -gt 0) {
-                                    $customOmitFolders = $data.omitFolders
-                                }
-                            }
-                            catch {
-                                # Just use default omit folders if JSON parsing fails
-                                Write-Verbose "Error parsing request body: $_"
-                            }
-                        }
-                    }
-                    
-                    # Run the update operation for the specific collection
-                    $updateResult = Update-FileTracker -FolderPath $collection.source_folder -DatabasePath $DatabasePath -OmitFolders $customOmitFolders -CollectionId $collectionId
-                    
-                    if ($updateResult.success) {
-                        $Response.StatusCode = 200
-                        $result = @{
-                            success = $true
-                            message = "Collection files updated successfully"
-                            summary = @{
-                                newFiles = $updateResult.newFiles
-                                modifiedFiles = $updateResult.modifiedFiles
-                                unchangedFiles = $updateResult.unchangedFiles
-                                removedFiles = $updateResult.removedFiles
-                                filesToProcess = $updateResult.filesToProcess
-                                filesToDelete = $updateResult.filesToDelete
-                            }
-                            collection_id = $collectionId
-                            omittedFolders = $customOmitFolders
-                        }
-                    }
-                    else {
-                        $Response.StatusCode = 500 # Internal Server Error
-                        $result = @{
-                            success = $false
-                            error = $updateResult.error
-                        }
-                    }
-                }
-                else {
-                    $Response.StatusCode = 405 # Method Not Allowed
-                    $result = @{
-                        success = $false
-                        error = "Method not allowed. Use POST."
-                    }
-                }
-                break
-            }
-            
-            # Get overall status (works for both legacy and collection mode)
-            "^/status$" {
-                if ($Request.HttpMethod -eq "GET") {
-                    $statusScript = Join-Path $PSScriptRoot "Get-FileTrackerStatus.ps1"
 
-                    $status = & $statusScript -InstallPath $InstallPath
-                    $result = @{
-                        success = $true
-                        status = $status
+                        if ($fileExists) {
+                             Set-PodeResponseStatus -Code 500; $result = @{ success = $false; error = "Failed to update file status" }
+                        } else {
+                             Set-PodeResponseStatus -Code 404; $result = @{ success = $false; error = "File not found in collection" }
+                        }
                     }
-                    
-                    $Response.StatusCode = 200
+                } else {
+                    Set-PodeResponseStatus -Code 400; $result = @{ success = $false; error = "Invalid request. Requires 'dirty' field." }
                 }
-                else {
-                    $Response.StatusCode = 405 # Method Not Allowed
-                    $result = @{
-                        success = $false
-                        error = "Method not allowed. Use GET."
-                    }
-                }
-                break
+                Write-PodeJsonResponse -Value $result
+                
+            } catch {
+                Write-Log "Error in PUT /collections/.../files/$($WebEvent.Parameters['fileId']): $_" -Level "ERROR"
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
-            
-            # Default case - endpoint not found
-            default {
-                $Response.StatusCode = 404 # Not Found
-                $result = @{
-                    success = $false
-                    error = "Endpoint not found: $endpoint"
-                    availableEndpoints = @(
-                        # Collection endpoints
-                        "$ApiPath/collections",
-                        "$ApiPath/collections/{id}",
-                        "$ApiPath/collections/{id}/settings",
-                        "$ApiPath/collections/{id}/watch",
-                        "$ApiPath/collections/{id}/files",
-                        "$ApiPath/collections/{id}/files/{fileId}",
-                        "$ApiPath/collections/{id}/update",
-                        # Common endpoints
-                        "$ApiPath/status"
-                    )
-                }
-                break
-            }
-        }
-        
-        # Convert result to JSON and write to response
-        $jsonResult = ConvertTo-Json $result -Depth 10
-        $buffer = [System.Text.Encoding]::UTF8.GetBytes($jsonResult)
-        $Response.ContentLength64 = $buffer.Length
-        $Response.OutputStream.Write($buffer, 0, $buffer.Length)
-    }
-    catch {
-        # Handle any exceptions
-        $Response.StatusCode = 500 # Internal Server Error
-        $errorResult = @{
-            success = $false
-            error = $_.ToString()
-        }
-        
-        $jsonError = ConvertTo-Json $errorResult
-        $buffer = [System.Text.Encoding]::UTF8.GetBytes($jsonError)
-        $Response.ContentLength64 = $buffer.Length
-        $Response.OutputStream.Write($buffer, 0, $buffer.Length)
-    }
-    finally {
-        # Close the response
-        $Response.Close()
-    }
-}
+        }  
 
-# Start the HTTP listener
-try {
-    $listener.Start()
-    Write-Log "FileTracker REST API server started at $prefix" -ForegroundColor Green
-    Write-Log "Installation directory: $InstallationPath" -ForegroundColor Green
-    Write-Log "Using database: $DatabasePath" -ForegroundColor Cyan
-    Write-Log "Press Ctrl+C to stop the server" -ForegroundColor Yellow
-    
-    # Available endpoints
-    Write-Log "=="
-    Write-Log "Available API Endpoints:" 
-    Write-Log "Collection Management:"
-    Write-Log "  GET  $prefix/collections              - Get all collections" -ForegroundColor White
-    Write-Log "  POST $prefix/collections              - Create a new collection" -ForegroundColor White
-    Write-Log "    Payload: { 'name': 'Collection Name', 'description': 'Optional description', 'source_folder': 'Optional path' }" -ForegroundColor Gray
-    Write-Log "  GET  $prefix/collections/{id}         - Get a specific collection" -ForegroundColor White
-    Write-Log "  PUT  $prefix/collections/{id}         - Update a collection" -ForegroundColor White
-    Write-Log "    Payload: { 'name': 'New Name', 'description': 'New description' }" -ForegroundColor Gray
-    Write-Log "  DELETE $prefix/collections/{id}       - Delete a collection" -ForegroundColor White
-    
-    Write-Log "Collection Files Management:" -ForegroundColor White
-    Write-Log "  GET  $prefix/collections/{id}/settings - Get collection settings and watch status" -ForegroundColor White
-    Write-Log "  POST $prefix/collections/{id}/watch   - Start or stop live file watching" -ForegroundColor White
-    Write-Log "    Payload: { 'action': 'start|stop', 'fileFilter': '*.*', 'watchCreated': true, 'watchModified': true, 'watchDeleted': true, 'watchRenamed': true, 'includeSubdirectories': true, 'processInterval': 15, 'omitFolders': ['folder1'] }" -ForegroundColor Gray
-    Write-Log "  GET  $prefix/collections/{id}/files   - Get files in a collection" -ForegroundColor White
-    Write-Log "  POST $prefix/collections/{id}/files   - Add a file to a collection" -ForegroundColor White
-    Write-Log "    Payload: { 'filePath': 'path/to/file', 'originalUrl': 'http://source.com/file', 'dirty': true|false }" -ForegroundColor Gray
-    Write-Log "  PUT  $prefix/collections/{id}/files   - Mark all files in collection as dirty/processed" -ForegroundColor White
-    Write-Log "    Payload: { 'dirty': true|false }" -ForegroundColor Gray
-    Write-Log "  DELETE $prefix/collections/{id}/files/{fileId} - Remove a file from a collection" -ForegroundColor White
-    Write-Log "  PUT  $prefix/collections/{id}/files/{fileId} - Update a file's status" -ForegroundColor White
-    Write-Log "    Payload: { 'dirty': true|false }" -ForegroundColor Gray
-    Write-Log "  POST $prefix/collections/{id}/update  - Scan folder for changes and update collection" -ForegroundColor White
-    Write-Log "    Payload (optional): { 'omitFolders': ['folder1', 'folder2'] }" -ForegroundColor Gray
-    
-    Write-Log "Common Endpoints:" -ForegroundColor White
-    Write-Log "  GET  $prefix/status                   - Get overall tracking status" -ForegroundColor White
-    Write-Log "=="
-    
-    # Handle incoming requests
-    while ($listener.IsListening -and -not $cancelToken.IsCancellationRequested) {
-        try
-        {
-            # Use GetContextAsync with a 1-second timeout to allow checking for cancellation
-            $task = $listener.GetContextAsync()
-            $context = $task.GetAwaiter().GetResult()
-            Process-Request -Request $context.Request -Response $context.Response
+        # POST /api/collections/{id}/update
+        Add-PodeRoute -Method Post -Path "$ApiPath/collections/:collectionId/update" -ScriptBlock {
+            try {
+                $collectionId = [int]$WebEvent.Parameters['collectionId']
+                $collection = Get-Collection -Id $collectionId -DatabasePath $using:DatabasePath
+                
+                if (-not $collection -or -not $collection.source_folder) {
+                    Set-PodeResponseStatus -Code 400; Write-PodeJsonResponse -Value @{ success = $false; error = "Collection source folder not defined" }; return
+                }
+                
+                $customOmitFolders = $using:OmitFolders
+                if ($WebEvent.Data -and $WebEvent.Data.omitFolders -and $WebEvent.Data.omitFolders.Count -gt 0) {
+                    $customOmitFolders = $WebEvent.Data.omitFolders
+                }
+                
+                $updateResult = Update-FileTracker -FolderPath $collection.source_folder -DatabasePath $using:DatabasePath -OmitFolders $customOmitFolders -CollectionId $collectionId
+                
+                if ($updateResult.success) {
+                    $result = @{
+                        success = $true; message = "Collection files updated successfully"
+                        summary = @{
+                            newFiles = $updateResult.newFiles; modifiedFiles = $updateResult.modifiedFiles
+                            unchangedFiles = $updateResult.unchangedFiles; removedFiles = $updateResult.removedFiles
+                            filesToProcess = $updateResult.filesToProcess; filesToDelete = $updateResult.filesToDelete
+                        }
+                        collection_id = $collectionId; omittedFolders = $customOmitFolders
+                    }
+                } else {
+                    Set-PodeResponseStatus -Code 500; $result = @{ success = $false; error = $updateResult.error }
+                }
+                Write-PodeJsonResponse -Value $result
+                
+            } catch {
+                Write-Log "Error in POST /collections/$($WebEvent.Parameters['collectionId'])/update: $_" -Level "ERROR"
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+            }
+        }  
+
+        # GET /health
+        Add-PodeRoute -Method Get -Path "/health" -ScriptBlock {
+            Write-PodeJsonResponse -Value @{ status = "OK" } -StatusCode 200
         }
-        catch [System.Threading.Tasks.TaskCanceledException] {
-            # This is expected during cancellation
-            continue
-        }
-        catch {
-            if (-not $cancelToken.IsCancellationRequested) {
-                Write-Error "Error processing request: $_"
+        # GET /api/status
+        Add-PodeRoute -Method GET -Path "$ApiPath/status" -ScriptBlock {
+            try {
+                # Get-FileTrackerStatus.ps1 is not directly available, call the function from the imported module
+                $status = .\Get-FileTrackerStatus.ps1 -InstallPath  $using:InstallPath
+                $result = @{ success = $true; status = $status }
+                Write-PodeJsonResponse -Value $result
+            } catch {
+                Write-Log "Error in GET /status: $_" -Level "ERROR"
+                Write-PodeJsonResponse --StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
         }
+
+ 
+        # Default route for 404
+        #Add-PodeRoute -Method * -Path * -ScriptBlock {
+        #    Write-PodeJsonResponse -Value @{ error = "Not found" } -StatusCode 404
+        #}
     }
-}
-catch {
-    if (-not $cancelToken.IsCancellationRequested) {
-        Write-Error "Error in HTTP listener: $_`n$($_.ScriptStackTrace)"
-    }
-}
-finally {
-    # Clean up resources
-    if ($listener.IsListening) {
-        $listener.Stop()
-        $listener.Close() # Close calls Dispose()
-        Write-Log "HTTP listener stopped." -ForegroundColor Green
-    }
-     Write-Log "FileTracker REST API server shutdown complete." -ForegroundColor Green
+
+    Write-Log "FileTracker REST API server running at http://localhost:$Port"
+    Write-Log "Swagger UI available at http://localhost:$Port/swagger"
+    Write-Log "Press Ctrl+C to stop the server."
+
+} catch {
+    Write-Log "Fatal error starting Pode server: $_" -Level "ERROR"
+    Write-Log "$($_.ScriptStackTrace)" -Level "ERROR"
+    exit 1
 }
