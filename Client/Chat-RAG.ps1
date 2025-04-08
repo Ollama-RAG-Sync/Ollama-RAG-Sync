@@ -14,7 +14,7 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 # Configuration
-$apiBaseUrl = "http://localhost:8081"
+$apiBaseUrl = "http://localhost:10000"
 $model = "llama3"
 $embeddingModel = "mxbai-embed-large:latest"
 $maxContextDocs = 5
