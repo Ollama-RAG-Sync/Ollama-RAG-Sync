@@ -12,11 +12,8 @@ param(
     [Parameter(Mandatory=$false)]
     [string]$FileTrackerApiPath = "/api",
     
-    [Parameter(Mandatory=$true)]
-    [int]$Port,
-    
     [Parameter(Mandatory=$false)]
-    [string]$ApiPath = "/api",
+    [int]$Port = 10005,
     
     [Parameter(Mandatory=$true)]
     [string]$InstallPath,
@@ -302,7 +299,7 @@ $ProcessCollectionBlock = {
 # Start the HTTP server
 try
 {
-Start-ProcessorHttpServer -Port $Port -ApiPath $ApiPath -DatabasePath $DatabasePath -FileTrackerBaseUrl $fileTrackerBaseUrl `
+Start-ProcessorHttpServer -Port $Port -DatabasePath $DatabasePath -FileTrackerBaseUrl $fileTrackerBaseUrl `
     -TempDir $TempDir -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel -ScriptPath $scriptPath `
     -UseChunking $UseChunking -ChunkSize $ChunkSize -ChunkOverlap $ChunkOverlap -WriteLog $WriteLogBlock `
     -GetCollections $GetCollectionsBlock -GetCollectionDirtyFiles $GetCollectionDirtyFilesBlock `

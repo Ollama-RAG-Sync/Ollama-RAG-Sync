@@ -232,8 +232,6 @@ try {
     }
     $processorJob = Start-Job -ScriptBlock $processorJobScript -ArgumentList $processorScript, $fileTrackerApiUrl, $OllamaUrl, $EmbeddingModel, $ChunkSize, $ChunkOverlap, $ProcessorPort,$InstallPath
 
-    Receive-Job -Job $processorJob -Wait
-
     # Wait a moment for the Processor API to start
     Start-Sleep -Seconds 2
     

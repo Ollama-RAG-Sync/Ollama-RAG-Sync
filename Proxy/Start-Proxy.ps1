@@ -220,10 +220,14 @@ function Format-RelevantContextForOllama {
 }
 
 function Get-OllamaModels {
-    param ([Parameter(Mandatory=$false)] [bool]$IncludeDetails = $false)
+    param (
+        [Parameter(Mandatory=$false)]
+        [bool]$IncludeDetails = $false,
+        [Parameter(Mandatory=$false)]
+        [string]$OllamaBaseUrl = $false)
     try {
-        $response = Invoke-RestMethod -Uri "$($OllamaBaseUrl)/api/tags" -Method Get -TimeoutSec 10 -ErrorAction Stop
-        $models = if ($IncludeDetails) { $response.models } else { $response.models.name }
+        $response = Invoke-RestMethod -Uri "$OllamaBaseUrl/api/tags" -Method Get -TimeoutSec 10 -ErrorAction Stop
+        $models = $response.models 
         return @{ success = $true; models = $models; count = $models.Count }
     } catch {
         Write-ApiLog -Message "Exception getting models from Ollama: $_" -Level "ERROR"
@@ -331,12 +335,11 @@ try {
         Add-PodeRoute -Method Get -Path "/api/models" -ScriptBlock {
             try {
                 $includeDetails = $WebEvent.Query['include_details'] -eq 'true'
-                $modelsResult = Get-OllamaModels -IncludeDetails $includeDetails
+                $modelsResult = Get-OllamaModels -IncludeDetails $includeDetails -OllamaBaseUrl $using:ollamaUrl
                 if ($modelsResult.success) {
                     Write-PodeJsonResponse -Value @{ models = $modelsResult.models; count = $modelsResult.count }
                 } else {
-                    Set-PodeResponseStatus -Code 502 # Bad Gateway (issue talking to Ollama)
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Failed to retrieve models from Ollama"; details = $modelsResult.error }
+                    Write-PodeJsonResponse -StatusCode 502 -Value @{ success = $false; error = "Failed to retrieve models from Ollama"; details = $modelsResult.error }
                 }
             } catch {
                  Write-ApiLog -Message "Error in GET /api/models: $_" -Level "ERROR"
