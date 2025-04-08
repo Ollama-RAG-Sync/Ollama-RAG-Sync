@@ -86,9 +86,6 @@ function Write-ApiLog {
     else {
         Write-Host $logMessage -ForegroundColor Green # Default Green
     }
-    
-    # Write to log file
-    Add-Content -Path $logFilePath -Value $logMessage
 }
 
 # --- Pre-flight Checks ---
@@ -155,7 +152,7 @@ function Get-RelevantDocuments {
         # Query Chunks
         if ($Mode -eq "chunks" -or $Mode -eq "both") {
             try {
-                $chunkResponse = Invoke-RestMethod -Uri "$($VectorsApiUrl)/api/search/chunks" -Method Post -Body ($baseBody | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 30 -ErrorAction Stop
+                $chunkResponse = Invoke-RestMethod -Uri "$VectorsApiUrl/api/search/chunks" -Method Post -Body ($baseBody | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 30 -ErrorAction Stop
                 if ($chunkResponse.success -and $chunkResponse.results) {
                     Write-ApiLog -Message "Found $($chunkResponse.count) matching chunks." -Level "DEBUG" # Changed level
                     $weight = if ($Mode -eq "both") { $ChkWeight } else { 1.0 }
@@ -171,7 +168,7 @@ function Get-RelevantDocuments {
         # Query Documents
         if ($Mode -eq "documents" -or $Mode -eq "both") {
              try {
-                $docResponse = Invoke-RestMethod -Uri "$($VectorsApiUrl)/api/search/documents" -Method Post -Body ($baseBody | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 30 -ErrorAction Stop
+                $docResponse = Invoke-RestMethod -Uri "$VectorsApiUrl/api/search/documents" -Method Post -Body ($baseBody | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 30 -ErrorAction Stop
                 if ($docResponse.success -and $docResponse.results) {
                     Write-ApiLog -Message "Found $($docResponse.count) matching documents." -Level "DEBUG" # Changed level
                     $weight = if ($Mode -eq "both") { $DocWeight } else { 1.0 }
@@ -187,13 +184,9 @@ function Get-RelevantDocuments {
         # Combine, Sort, Filter, Limit
         if ($combinedResults.Count -gt 0) {
             $finalResults = $combinedResults | Sort-Object -Property similarity -Descending | Where-Object { $_.similarity -ge $Threshold } | Select-Object -First $MaxResults
-            Write-ApiLog -Message "Returning $($finalResults.Count) relevant context items after filtering/sorting." -Level "INFO"
-        } else {
-             Write-ApiLog -Message "No relevant context items found." -Level "INFO"
         }
 
     } catch {
-        Write-ApiLog -Message "Exception querying Vectors API: $_" -Level "ERROR"
         $success = $false
         $errorMessage = $_.ToString()
     }
@@ -252,7 +245,8 @@ function Send-ChatToOllama {
         [Parameter(Mandatory=$true)] [string]$Model,
         [Parameter(Mandatory=$false)] [object]$Context = $null, # Ollama context object for conversation history
         [Parameter(Mandatory=$false)] [double]$Temperature = 0.7,
-        [Parameter(Mandatory=$false)] [int]$NumCtx = 4096 # Default context window size
+        [Parameter(Mandatory=$false)] [int]$NumCtx = 4096, # Default context window size,
+        [Parameter(Mandatory=$false)] [string]$OllamaBaseUrl
     )
     try {
         $body = @{ model = $Model; messages = $Messages; stream = $false } # Stream false for single response
@@ -269,7 +263,7 @@ function Send-ChatToOllama {
         # Escape the literal $ in the regex pattern with a backtick
         Write-ApiLog -Message ('Sending request to Ollama: ' + ($jsonBody -replace '"password":".*?"', '"password":"***"')) -Level "DEBUG" # Log request without sensitive data if any
         
-        $response = Invoke-RestMethod -Uri "$($OllamaBaseUrl)/api/chat" -Method Post -Body $jsonBody -ContentType "application/json" -TimeoutSec 120 -ErrorAction Stop # Increased timeout
+        $response = Invoke-RestMethod -Uri "$OllamaBaseUrl/api/chat" -Method Post -Body $jsonBody -ContentType "application/json" -TimeoutSec 120 -ErrorAction Stop # Increased timeout
         
         return @{ success = $true; result = $response }
     } catch {
@@ -400,8 +394,8 @@ try {
                 
                 $messages = $data.messages
                 $model = if ($null -ne $data.model) { $data.model } else { "llama3" } # Default model
-                $maxResults = if ($null -ne $data.max_context_docs) { $data.max_context_docs } else { $MaxContextDocs }
-                $threshold = if ($null -ne $data.threshold) { $data.threshold } else { $RelevanceThreshold }
+                $maxResults = if ($null -ne $data.max_context_docs) { $data.max_context_docs } else { $using:maxContextDocs }
+                $threshold = if ($null -ne $data.threshold) { $data.threshold } else { $using:relevanceThreshold }
                 $enhanceContext = if ($null -ne $data.enhance_context) { $data.enhance_context } else { $true }
                 $temperature = if ($null -ne $data.temperature) { $data.temperature } else { 0.7 }
                 $numCtx = if ($null -ne $data.num_ctx) { $data.num_ctx } else { 4096 } # Default context window
@@ -416,9 +410,9 @@ try {
 
                 if ($enhanceContext -and $null -ne $latestUserMessage) {
                     $searchPerformed = $true
-                    $qMode = if ($null -ne $data.query_mode) { $data.query_mode } else { $queryMode }
-                    $chkWeight = if ($null -ne $data.chunk_weight) { $data.chunk_weight } else { $chunkWeight }
-                    $docWeight = if ($null -ne $data.document_weight) { $data.document_weight } else { $documentWeight }
+                    $qMode = if ($null -ne $data.query_mode) { $data.query_mode } else { $using:queryMode }
+                    $chkWeight = if ($null -ne $data.chunk_weight) { $data.chunk_weight } else { $using:chunkWeight }
+                    $docWeight = if ($null -ne $data.document_weight) { $data.document_weight } else { $using:documentWeight }
                     
                     $searchResult = Get-RelevantDocuments -Query $latestUserMessage -MaxResults $maxResults -Threshold $threshold -Mode $qMode -ChkWeight $chkWeight -DocWeight $docWeight
                     
@@ -433,14 +427,19 @@ try {
                          }
                     }
                 }
-
                 # Prepare messages for Ollama
                 $ollamaMessages = @() + $messages # Create a mutable copy
-                $systemMessageIndex = $ollamaMessages.FindIndex({ $_.role -eq 'system' })
+                $systemMessageIndex = 0
+                for ($i = 0; $i -lt $ollamaMessages.Count; $i++) {
+                    if ($ollamaMessages[$i].role -eq 'system') {
+                        $systemMessageIndex = $i
+                        break
+                    }
+                }   
 
                 if ($null -ne $formattedContext) {
                     # Inject context into system message or add a new one
-                    $contextPrefix = if ($ContextOnlyMode) {
+                    $contextPrefix = if ($contextOnlyMode) {
                         "IMPORTANT: You must ONLY use information from the provided context below to answer the user's question. Do NOT use your own knowledge or training data. If the context doesn't contain relevant information, state that clearly."
                     } else {
                         "Use the following context to help answer the user's question:"
@@ -453,7 +452,7 @@ try {
                     } else {
                         $ollamaMessages = @(@{ role = 'system'; content = $fullSystemContent }) + $ollamaMessages
                     }
-                } elseif ($ContextOnlyMode -and $searchPerformed) {
+                } elseif ($contextOnlyMode -and $searchPerformed) {
                      # Context-Only mode, search was done, but nothing found
                      $noContextMsg = "IMPORTANT: No relevant context was found for the user's query. Inform the user that you cannot answer the question based *only* on the provided context, as required."
                      if ($systemMessageIndex -ge 0) {
@@ -464,8 +463,7 @@ try {
                 }
 
                 # Send to Ollama
-                $chatResult = Send-ChatToOllama -Messages $ollamaMessages -Model $model -Context $ollamaContext -Temperature $temperature -NumCtx $numCtx
-                
+                $chatResult = Send-ChatToOllama -OllamaBaseUrl $using:ollamaUrl -Messages $ollamaMessages -Model $model -Context $ollamaContext -Temperature $temperature -NumCtx $numCtx
                 if ($chatResult.success) {
                     $responseBody = $chatResult.result
                     # Add context metadata to response
@@ -478,12 +476,12 @@ try {
                     }
                     Write-PodeJsonResponse -Value $responseBody
                 } else {
-                    Write-PodeJsonResponse -StatusCode 502 -Value @{ success = $false; error = "Failed to get response from Ollama"; details = $chatResult.error }
+                    Write-PodeJsonResponse -StatusCode 502 -Value @{ success = $false; error = "Failed to get response from Ollama ($using:ollamaUrl)"; details = $chatResult.error }
                 }
 
             } catch {
-                 Write-ApiLog -Message "Error in POST /api/chat: $_" -Level "ERROR"
-                 Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                 
             }
         }
     }
