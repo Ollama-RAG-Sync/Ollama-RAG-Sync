@@ -77,8 +77,6 @@
 param (
     [Parameter(Mandatory = $true)]
     [string]$InstallPath,
-    [Parameter(Mandatory = $true)]
-    [string]$DirectoryPath,
     [Parameter(Mandatory = $false)]
     [string]$EmbeddingModel = "mxbai-embed-large:latest",
     [Parameter(Mandatory = $false)]
@@ -100,13 +98,13 @@ param (
     [Parameter(Mandatory = $false)]
     [int]$ChunkOverlap = 200,
     [Parameter(Mandatory = $false)]
-    [int]$FileTrackerPort = 11090,
+    [int]$FileTrackerPort = 10003,
     [Parameter(Mandatory = $false)]
-    [int]$ProcessorPort = 11093,
+    [int]$ProcessorPort = 10005,
     [Parameter(Mandatory = $false)]
-    [int]$VectorsPort = 11092,
+    [int]$VectorsPort = 10001,
     [Parameter(Mandatory = $false)]
-    [int]$ApiProxyPort = 11091,
+    [int]$ApiProxyPort = 10000,
     [Parameter(Mandatory = $false)]
     [int]$MaxContextDocs = 5,
 
@@ -116,10 +114,7 @@ param (
     [switch]$ContextOnlyMode
 )
 
-
 .\Tools\Clear-PortRegistrations.ps1 -Ports $FileTrackerPort, $ProcessorPort, $VectorsPort, $ApiProxyPort
-
-# Function to log messages with timestamp and color-coding
 function Write-Log {
     param (
         [string]$Message,
@@ -134,12 +129,6 @@ function Write-Log {
         "WARNING" { Write-Host $logMessage }
         default { Write-Host $logMessage }
     }
-}
-
-# Validate the directory exists
-if (-not (Test-Path -Path $DirectoryPath)) {
-    Write-Log "Directory '$DirectoryPath' does not exist." -Level "ERROR"
-    exit 1
 }
 
 $fileTrackerDbPath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
@@ -165,12 +154,14 @@ try {
     
     # Start Vectors API as a background job
     $vectorsAPIJobScript = {
-        param($installPath, $scriptPath, $chromaDbPath, $ollamaUrl, $embeddingModel, $chunkSize, $chunkOverlap, $apiPort)
-        & $scriptPath -InstallPath $installPath -ChromaDbPath $chromaDbPath -OllamaUrl $ollamaUrl -EmbeddingModel $embeddingModel -DefaultChunkSize $chunkSize -DefaultChunkOverlap $chunkOverlap -Port $apiPort
+        param($installPath, $scriptPath, $ollamaUrl, $embeddingModel, $chunkSize, $chunkOverlap, $apiPort)
+
+        & $scriptPath -InstallPath $installPath -OllamaUrl $ollamaUrl -EmbeddingModel $embeddingModel -DefaultChunkSize $chunkSize -DefaultChunkOverlap $chunkOverlap -Port $apiPort -ErrorAction Stop 
     }
     
-    $vectorsAPIJob = Start-Job -ScriptBlock $vectorsAPIJobScript -ArgumentList $InstallPath, $vectorsAPIScript, $vectorDbPath, $OllamaUrl, $EmbeddingModel, $ChunkSize, $ChunkOverlap, $VectorsPort
-    
+    #& $vectorsAPIScript -InstallPath $InstallPath -OllamaUrl $OllamaUrl -EmbeddingModel $EmbeddingModel -DefaultChunkSize $ChunkSize -DefaultChunkOverlap $ChunkOverlap -Port $VectorsPort
+    $vectorsAPIJob = Start-Job -ScriptBlock $vectorsAPIJobScript -ArgumentList $InstallPath, $vectorsAPIScript, $OllamaUrl, $EmbeddingModel, $ChunkSize, $ChunkOverlap, $VectorsPort
+
     # Wait a moment for the API to start
     Start-Sleep -Seconds 2
     
@@ -196,12 +187,12 @@ try {
     
     # Start FileTracker as a background job
     $fileTrackerJobScript = {
-        param($scriptPath, $installPath, $omitFolders, $port)
-        & $scriptPath -InstallPath $installPath -OmitFolders $omitFolders -Port $port
+        param($scriptPath, $installPath, $port)
+        & $scriptPath -InstallPath $installPath -Port $port
     }
     
-    $fileTrackerJob = Start-Job -ScriptBlock $fileTrackerJobScript -ArgumentList $fileTrackerScript, $InstallPath, @('.git'), $FileTrackerPort
-    
+    $fileTrackerJob = Start-Job -ScriptBlock $fileTrackerJobScript -ArgumentList $fileTrackerScript, $InstallPath, $FileTrackerPort
+
     # Wait a moment for the FileTracker to start
     Start-Sleep -Seconds 2
     
@@ -240,7 +231,9 @@ try {
         }
     }
     $processorJob = Start-Job -ScriptBlock $processorJobScript -ArgumentList $processorScript, $fileTrackerApiUrl, $OllamaUrl, $EmbeddingModel, $ChunkSize, $ChunkOverlap, $ProcessorPort,$InstallPath
-    
+
+    Receive-Job -Job $processorJob -Wait
+
     # Wait a moment for the Processor API to start
     Start-Sleep -Seconds 2
     
@@ -310,7 +303,7 @@ Write-Log "1. Stop the Vectors API job: Stop-Job -Id $($vectorsAPIJob.Id); Remov
 Write-Log "2. Stop the FileTracker job: Stop-Job -Id $($fileTrackerJob.Id); Remove-Job -Id $($fileTrackerJob.Id)" -Level "INFO"
 Write-Log "3. Stop the collection watcher job: Stop-Job -Id $($watchCollectionJob.Id); Remove-Job -Id $($watchCollectionJob.Id)" -Level "INFO"
 Write-Log "4. Stop the Processor API job: Stop-Job -Id $($processorJob.Id); Remove-Job -Id $($processorJob.Id)" -Level "INFO"
-Write-Log "5. Stop the API proxy server job: Stop-Job -Id $($apiProxyJob.Id); Remove-Job -Id $($apiProxyJob.Id)" -Level "INFO"
+Write-Log "5. Stop the Proxy API job: Stop-Job -Id $($apiProxyJob.Id); Remove-Job -Id $($apiProxyJob.Id)" -Level "INFO"
 
 Write-Log "`nTo interact with the RAG system:" -Level "INFO"
 Write-Log "- Use http://localhost:$ApiProxyPort/api/chat for RAG-enhanced chat" -Level "INFO"

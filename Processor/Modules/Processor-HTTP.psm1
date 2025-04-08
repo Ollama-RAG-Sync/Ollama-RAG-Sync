@@ -8,8 +8,8 @@ function Start-ProcessorHttpServer {
         [Parameter(Mandatory=$false)]
         [string]$ListenAddress = "localhost",
         
-        [Parameter(Mandatory=$true)]
-        [int]$Port,
+        [Parameter(Mandatory=$false)]
+        [int]$Port = 10005,
         
         [Parameter(Mandatory=$true)]
         [string]$ApiPath,
@@ -103,17 +103,9 @@ function Start-ProcessorHttpServer {
                     Write-PodeJsonResponse -Value @{ success = $true; status = $statusData }
                 } catch {
                     & $using:WriteLog "Error in GET /status: $_" -Level "ERROR"
-                    Set-PodeResponseStatus -Code 500
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                    Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
                 }
-            } -OpenApi @{
-                Summary = "Get processor status"
-                Description = "Retrieves the current status of the processor API, including collection count and processor script count."
-                Responses = @{
-                    "200" = @{ Description = "Processor status"; Content = @{ "application/json" = @{ Schema = @{ type = "object" } } } }
-                    "500" = @{ Description = "Internal Server Error" }
-                }
-            }
+            } 
 
             # GET /api/collections
             Add-PodeRoute -Method Get -Path "$($using:ApiPath)/collections" -ScriptBlock {
@@ -132,22 +124,13 @@ function Start-ProcessorHttpServer {
                         }
                         Write-PodeJsonResponse -Value @{ success = $true; collections = $collections; count = $collections.Count }
                     } else {
-                        Set-PodeResponseStatus -Code 500
-                        Write-PodeJsonResponse -Value @{ success = $false; error = "Failed to fetch collections from FileTracker" }
+                        Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Failed to fetch collections from FileTracker" }
                     }
                 } catch {
                     & $using:WriteLog "Error in GET /collections: $_" -Level "ERROR"
-                    Set-PodeResponseStatus -Code 500
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                    Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
                 }
-            } -OpenApi @{
-                Summary = "Get all collections with processor info"
-                Description = "Retrieves a list of all collections from FileTracker and indicates if a custom processor is configured for each."
-                Responses = @{
-                    "200" = @{ Description = "List of collections"; Content = @{ "application/json" = @{ Schema = @{ type = "object" } } } }
-                    "500" = @{ Description = "Internal Server Error or FileTracker communication issue" }
-                }
-            }
+            } 
 
             # GET /api/collections/{id}/processor
             Add-PodeRoute -Method Get -Path "$($using:ApiPath)/collections/:collectionId/processor" -ScriptBlock {
@@ -164,13 +147,11 @@ function Start-ProcessorHttpServer {
                     if ($processor) {
                         Write-PodeJsonResponse -Value @{ success = $true; processor = $processor }
                     } else {
-                        Set-PodeResponseStatus -Code 404
-                        Write-PodeJsonResponse -Value @{ success = $false; error = "No processor found for collection" }
+                        Write-PodeJsonResponse -StatusCode 404 -Value @{ success = $false; error = "No processor found for collection" }
                     }
                 } catch {
                     & $using:WriteLog "Error in GET /collections/$($WebEvent.Parameters['collectionId'])/processor: $_" -Level "ERROR"
-                    Set-PodeResponseStatus -Code 500
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                    Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
                 }
             } -OpenApi @{
                 Summary = "Get collection processor"
@@ -205,27 +186,11 @@ function Start-ProcessorHttpServer {
                     if ($success) {
                         Write-PodeJsonResponse -Value @{ success = $true; message = "Processor set successfully"; collection_id = $collectionId; collection_name = $collectionName; processor_script = $processorScript }
                     } else {
-                        Set-PodeResponseStatus -Code 500
-                        Write-PodeJsonResponse -Value @{ success = $false; error = "Failed to set processor" }
+                        Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Failed to set processor" }
                     }
                 } catch {
                     & $using:WriteLog "Error in PUT /collections/$($WebEvent.Parameters['collectionId'])/processor: $_" -Level "ERROR"
-                    Set-PodeResponseStatus -Code 500
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
-                }
-            } -OpenApi @{
-                Summary = "Set collection processor"
-                Description = "Sets or updates the processor script and parameters for a specific collection."
-                Parameters = @( @{ Name = "collectionId"; In = "path"; Required = $true; Schema = @{ type = "integer" } } )
-                RequestBody = @{
-                    Required = $true
-                    Content = @{ "application/json" = @{ Schema = @{ type = "object"; properties = @{ processor_script = @{ type = "string" }; processor_params = @{ type = "object" } }; required = @("processor_script") } } }
-                }
-                Responses = @{
-                    "200" = @{ Description = "Processor set successfully" }
-                    "400" = @{ Description = "Bad Request (missing processor_script)" }
-                    "404" = @{ Description = "Collection not found" }
-                    "500" = @{ Description = "Internal Server Error" }
+                    Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
                 }
             }
 
@@ -243,13 +208,11 @@ function Start-ProcessorHttpServer {
                     if ($success) {
                         Write-PodeJsonResponse -Value @{ success = $true; message = "Processor removed successfully"; collection_id = $collectionId; collection_name = $collectionName }
                     } else {
-                        Set-PodeResponseStatus -Code 404 # Or 500 if removal failed unexpectedly
-                        Write-PodeJsonResponse -Value @{ success = $false; error = "No processor found for collection or failed to remove" }
+                        Write-PodeJsonResponse -StatusCode 404 -Value @{ success = $false; error = "No processor found for collection or failed to remove" }
                     }
                 } catch {
                     & $using:WriteLog "Error in DELETE /collections/$($WebEvent.Parameters['collectionId'])/processor: $_" -Level "ERROR"
-                    Set-PodeResponseStatus -Code 500
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                    Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
                 }
             } -OpenApi @{
                 Summary = "Remove collection processor"
@@ -289,20 +252,7 @@ function Start-ProcessorHttpServer {
                     
                 } catch {
                     & $using:WriteLog "Error in POST /collections/$($WebEvent.Parameters['collectionId'])/process: $_" -Level "ERROR"
-                    Set-PodeResponseStatus -Code 500
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
-                }
-            } -OpenApi @{
-                Summary = "Process dirty files in a collection by ID"
-                Description = "Triggers the processing logic for all files marked as dirty within a specific collection."
-                Parameters = @( @{ Name = "collectionId"; In = "path"; Required = $true; Schema = @{ type = "integer" } } )
-                RequestBody = @{
-                    Content = @{ "application/json" = @{ Schema = @{ type = "object"; properties = @{ processor_script = @{ type = "string" }; processor_params = @{ type = "object" } } } } }
-                }
-                Responses = @{
-                    "200" = @{ Description = "Processing complete"; Content = @{ "application/json" = @{ Schema = @{ type = "object" } } } }
-                    "404" = @{ Description = "Collection not found" }
-                    "500" = @{ Description = "Internal Server Error during processing" }
+                    Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
                 }
             }
 
@@ -333,20 +283,7 @@ function Start-ProcessorHttpServer {
                     
                 } catch {
                     & $using:WriteLog "Error in POST /collections/name/$($WebEvent.Parameters['collectionName'])/process: $_" -Level "ERROR"
-                    Set-PodeResponseStatus -Code 500
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
-                }
-            } -OpenApi @{
-                Summary = "Process dirty files in a collection by name"
-                Description = "Triggers the processing logic for all files marked as dirty within a specific collection, identified by name."
-                Parameters = @( @{ Name = "collectionName"; In = "path"; Required = $true; Schema = @{ type = "string" } } )
-                 RequestBody = @{
-                    Content = @{ "application/json" = @{ Schema = @{ type = "object"; properties = @{ processor_script = @{ type = "string" }; processor_params = @{ type = "object" } } } } }
-                }
-                Responses = @{
-                    "200" = @{ Description = "Processing complete"; Content = @{ "application/json" = @{ Schema = @{ type = "object" } } } }
-                    "404" = @{ Description = "Collection not found" }
-                    "500" = @{ Description = "Internal Server Error during processing" }
+                    Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
                 }
             }
 
@@ -383,18 +320,9 @@ function Start-ProcessorHttpServer {
                     
                 } catch {
                     & $using:WriteLog "Error in POST /process: $_" -Level "ERROR"
-                    Set-PodeResponseStatus -Code 500
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                    Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
                 }
-            } -OpenApi @{
-                Summary = "Process dirty files in all collections"
-                Description = "Triggers the processing logic for all dirty files across all known collections."
-                Responses = @{
-                    "200" = @{ Description = "Processing complete for all collections"; Content = @{ "application/json" = @{ Schema = @{ type = "object" } } } }
-                    "404" = @{ Description = "No collections found" }
-                    "500" = @{ Description = "Internal Server Error during processing" }
-                }
-            }
+            } 
 
             # POST /api/files/{id}/process
             Add-PodeRoute -Method Post -Path "$($using:ApiPath)/files/:fileId/process" -ScriptBlock {
@@ -461,34 +389,12 @@ function Start-ProcessorHttpServer {
                     
                 } catch {
                     & $using:WriteLog "Error in POST /files/$($WebEvent.Parameters['fileId'])/process: $_" -Level "ERROR"
-                    Set-PodeResponseStatus -Code 500
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                    Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
                 }
-            } -OpenApi @{
-                Summary = "Process a single file by ID"
-                Description = "Triggers the processing logic for a specific file identified by its ID within a given collection (identified by ID or name)."
-                Parameters = @( @{ Name = "fileId"; In = "path"; Required = $true; Schema = @{ type = "integer" } } )
-                RequestBody = @{
-                    Required = $true
-                    Content = @{ "application/json" = @{ Schema = @{ type = "object"; properties = @{ collection_id = @{ type = "integer" }; collection_name = @{ type = "string" }; processor_script = @{ type = "string" }; processor_params = @{ type = "object" } }; description = "Must provide either collection_id or collection_name" } } }
-                }
-                Responses = @{
-                    "200" = @{ Description = "File processed successfully" }
-                    "400" = @{ Description = "Bad Request (missing collection identifier)" }
-                    "404" = @{ Description = "Collection or file not found" }
-                    "500" = @{ Description = "Internal Server Error during processing or marking" }
-                }
-            }
-
-            # Default route for 404
-            Add-PodeRoute -Method * -Path * -ScriptBlock {
-                Set-PodeResponseStatus -Code 404
-                Write-PodeJsonResponse -Value @{ success = $false; error = "Endpoint not found: $($WebEvent.Request.Url.Path)" }
             }
         }
 
         & $using:WriteLog "Processor REST API server running at http://localhost:$Port"
-        & $using:WriteLog "Swagger UI available at http://localhost:$Port/swagger"
         & $using:WriteLog "Press Ctrl+C to stop the server."
 
     } catch {

@@ -9,12 +9,9 @@ param (
     [Parameter(Mandatory=$false)]
     [string]$ListenAddress = "localhost", # Pode uses this in Start-PodeServer -Endpoint
     
-    [Parameter(Mandatory=$true)]
-    [int]$Port,
-    
     [Parameter(Mandatory=$false)]
-    [string]$ChromaDbPath, # Will be determined based on InstallPath if not provided
-    
+    [int]$Port = 10001,
+
     [Parameter(Mandatory=$false)]
     [string]$OllamaUrl = "http://localhost:11434",
     
@@ -33,32 +30,27 @@ param (
     [Parameter(Mandatory=$true)]
     [string]$InstallPath
 )
+ # Import Pode Module
+ Import-Module Pode -ErrorAction Stop
+ $chromaDbPath = Join-Path -Path $InstallPath -ChildPath "Chroma.db"
 
-# Import Pode Module
-Import-Module Pode -ErrorAction Stop
+ # Determine script path and import local modules/functions
+ $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+ $modulesPath = Join-Path -Path $scriptPath -ChildPath "Modules"
+ $functionsPath = Join-Path -Path $scriptPath -ChildPath "Functions"
 
-# Determine script path and import local modules/functions
-$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
-$modulesPath = Join-Path -Path $scriptPath -ChildPath "Modules"
-$functionsPath = Join-Path -Path $scriptPath -ChildPath "Functions"
+ # Set up logging
+ $TempDir = Join-Path -Path $InstallPath -ChildPath "Temp"
+ if (-not (Test-Path -Path $TempDir)) 
+ { 
+     New-Item -Path $TempDir -ItemType Directory -Force | Out-Null 
+ }
 
-# Set up logging
-$TempDir = Join-Path -Path $InstallPath -ChildPath "Temp"
-if (-not (Test-Path -Path $TempDir)) 
-{ 
-    New-Item -Path $TempDir -ItemType Directory -Force | Out-Null 
-}
+ $logDate = Get-Date -Format "yyyy-MM-dd"
+ $logFileName = "Vectors_$logDate.log"
+ $logFilePath = Join-Path -Path $TempDir -ChildPath "$logFileName"
 
-$logDate = Get-Date -Format "yyyy-MM-dd"
-$logFileName = "Vectors_$logDate.log"
-$logFilePath = Join-Path -Path $TempDir -ChildPath "$logFileName"
-
-# Determine ChromaDB Path if not provided
-if (-not $ChromaDbPath) {
-    $ChromaDbPath = Join-Path -Path $InstallPath -ChildPath "Chroma.db"
-    Write-Host "ChromaDbPath not provided, using default: $ChromaDbPath" -ForegroundColor Cyan
-}
-
+Add-Content -Path "C:\log.txt" -Value "TEST4"
 function Write-Log {
     param (
         [Parameter(Mandatory=$true)]
@@ -81,8 +73,6 @@ function Write-Log {
     else {
         Write-Host $logMessage -ForegroundColor Green # Default to Green
     }
-    
-    # Write to log file
     Add-Content -Path $logFilePath -Value $logMessage
 }
 
@@ -121,7 +111,7 @@ function Add-Document {
         if ($ChunkOverlap -ne $using:DefaultChunkOverlap) { $params.ChunkOverlap = $ChunkOverlap }
         
         # Pass global config
-        $params.ChromaDbPath = $using:ChromaDbPath
+        $params.ChromaDbPath = $using:chromaDbPath
         $params.OllamaUrl = $using:OllamaUrl
         $params.EmbeddingModel = $using:EmbeddingModel
         
@@ -295,6 +285,7 @@ function Search-Documents {
 
 # --- Start Pode Server ---
 try {
+   
     Write-Log "Starting Vectors API server using Pode..."
     Write-Log "ChromaDB Path: $ChromaDbPath"
     Write-Log "Ollama URL: $OllamaUrl"
@@ -320,11 +311,7 @@ try {
                     "/status - GET: Get server status"
                 )
             }
-        } -OpenApi @{
-            Summary = "API Information"
-            Description = "Provides basic status and lists available routes."
-            Responses = @{ "200" = @{ Description = "API status and routes" } }
-        }
+        } 
 
         # GET /status
         Add-PodeRoute -Method Get -Path "/status" -ScriptBlock {
@@ -336,12 +323,7 @@ try {
                 defaultChunkSize = $using:DefaultChunkSize
                 defaultChunkOverlap = $using:DefaultChunkOverlap
             }
-        } -OpenApi @{
-            Summary = "Server Status"
-            Description = "Returns the current configuration and status of the Vectors API server."
-             Responses = @{ "200" = @{ Description = "Server configuration details" } }
         }
-
         # POST /documents - Add document
         Add-PodeRoute -Method Post -Path "/documents" -ScriptBlock {
             try {
@@ -362,35 +344,11 @@ try {
                 if ($result.success) {
                     Write-PodeJsonResponse -Value $result
                 } else {
-                    Set-PodeResponseStatus -Code 500
-                    Write-PodeJsonResponse -Value $result
+                    Write-PodeJsonResponse -StatusCode 500 -Value $result
                 }
             } catch {
                  Write-Log "Error in POST /documents: $_" -Level "ERROR"
-                 Set-PodeResponseStatus -Code 500
-                 Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
-            }
-        } -OpenApi @{
-            Summary = "Add Document to Vectors"
-            Description = "Processes a file, generates embeddings for its chunks, and stores them in the vector database."
-            RequestBody = @{
-                Required = $true
-                Content = @{ "application/json" = @{ Schema = @{ 
-                    type = "object"; 
-                    properties = @{ 
-                        filePath = @{ type = "string"; description = "Path to the file to process" }; 
-                        fileId = @{ type = "integer"; description = "Optional ID associated with the file" }; 
-                        chunkSize = @{ type = "integer"; description = "Chunk size (default: $($using:DefaultChunkSize))" }; 
-                        chunkOverlap = @{ type = "integer"; description = "Chunk overlap (default: $($using:DefaultChunkOverlap))" };
-                        contentType = @{ type = "string"; description = "Content type (e.g., Text, Markdown - currently informational)" } 
-                    }; 
-                    required = @("filePath") 
-                } } }
-            }
-            Responses = @{
-                "200" = @{ Description = "Document added successfully" }
-                "400" = @{ Description = "Bad Request (missing filePath)" }
-                "500" = @{ Description = "Internal Server Error during processing" }
+                 Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
         }
 
@@ -411,36 +369,13 @@ try {
                 if ($result.success) {
                     Write-PodeJsonResponse -Value $result
                 } elseif ($result.notFound) {
-                     Set-PodeResponseStatus -Code 404
-                     Write-PodeJsonResponse -Value $result
+                     Write-PodeJsonResponse -StatusCode 404 -Value $result
                 } else {
-                    Set-PodeResponseStatus -Code 500
-                    Write-PodeJsonResponse -Value $result
+                    Write-PodeJsonResponse -StatusCode 500 -Value $result
                 }
             } catch {
                  Write-Log "Error in DELETE /documents: $_" -Level "ERROR"
-                 Set-PodeResponseStatus -Code 500
-                 Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
-            }
-        } -OpenApi @{
-            Summary = "Remove Document from Vectors"
-            Description = "Removes all vector embeddings associated with a specific file path from the database."
-             RequestBody = @{
-                Required = $true
-                Content = @{ "application/json" = @{ Schema = @{ 
-                    type = "object"; 
-                    properties = @{ 
-                        filePath = @{ type = "string"; description = "Path of the file whose vectors should be removed" };
-                        fileId = @{ type = "integer"; description = "Optional ID associated with the file (for response consistency)" }; 
-                    }; 
-                    required = @("filePath") 
-                } } }
-            }
-            Responses = @{
-                "200" = @{ Description = "Document vectors removed successfully" }
-                "400" = @{ Description = "Bad Request (missing filePath in body)" }
-                "404" = @{ Description = "Document not found in vector store" }
-                "500" = @{ Description = "Internal Server Error during removal" }
+                 Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
         }
 
@@ -468,29 +403,7 @@ try {
                 }
             } catch {
                  Write-Log "Error in POST /api/search/chunks: $_" -Level "ERROR"
-                 Set-PodeResponseStatus -Code 500
-                 Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
-            }
-        } -OpenApi @{
-            Summary = "Search Chunks"
-            Description = "Searches for individual text chunks in the vector database based on semantic similarity to the query."
-            RequestBody = @{
-                Required = $true
-                Content = @{ "application/json" = @{ Schema = @{ 
-                    type = "object"; 
-                    properties = @{ 
-                        query = @{ type = "string"; description = "The search query text" }; 
-                        max_results = @{ type = "integer"; description = "Maximum number of results to return (default: 10)" }; 
-                        threshold = @{ type = "number"; format="double"; description = "Minimum similarity score (default: 0.0)" }; 
-                        filter = @{ type = "object"; description = "Optional metadata filter (ChromaDB 'where' format)" } 
-                    }; 
-                    required = @("query") 
-                } } }
-            }
-            Responses = @{
-                "200" = @{ Description = "Search results (list of chunks)" }
-                "400" = @{ Description = "Bad Request (missing query)" }
-                "500" = @{ Description = "Internal Server Error during search" }
+                 Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
         }
 
@@ -514,42 +427,13 @@ try {
                 if ($result.success) {
                     Write-PodeJsonResponse -Value $result
                 } else {
-                    Set-PodeResponseStatus -Code 500
-                    Write-PodeJsonResponse -Value $result
+                    Write-PodeJsonResponse -StatusCode 500 -Value $result
                 }
             } catch {
+                 Add-Content -Path $logFilePath -Value $_
                  Write-Log "Error in POST /api/search/documents: $_" -Level "ERROR"
-                 Set-PodeResponseStatus -Code 500
-                 Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                 Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
-        } -OpenApi @{
-            Summary = "Search Documents"
-            Description = "Searches for documents in the vector database based on semantic similarity, aggregating chunk scores."
-             RequestBody = @{
-                Required = $true
-                Content = @{ "application/json" = @{ Schema = @{ 
-                    type = "object"; 
-                    properties = @{ 
-                        query = @{ type = "string"; description = "The search query text" }; 
-                        max_results = @{ type = "integer"; description = "Maximum number of documents to return (default: 10)" }; 
-                        threshold = @{ type = "number"; format="double"; description = "Minimum aggregated similarity score (default: 0.0)" }; 
-                        return_content = @{ type = "boolean"; description = "Whether to return the source content of the best matching chunk (default: false)" };
-                        filter = @{ type = "object"; description = "Optional metadata filter (ChromaDB 'where' format)" } 
-                    }; 
-                    required = @("query") 
-                } } }
-            }
-            Responses = @{
-                "200" = @{ Description = "Search results (list of documents)" }
-                "400" = @{ Description = "Bad Request (missing query)" }
-                "500" = @{ Description = "Internal Server Error during search" }
-            }
-        }
-
-        # Default route for 404
-        Add-PodeRoute -Method * -Path * -ScriptBlock {
-            Set-PodeResponseStatus -Code 404
-            Write-PodeJsonResponse -Value @{ success = $false; error = "Endpoint not found: $($WebEvent.Request.Url.Path)" }
         }
     }
 
@@ -558,10 +442,9 @@ try {
     Write-Log "Press Ctrl+C to stop the server."
 
 } catch {
+    Add-Content -Path "C:\log.txt" -Value "TEST6"
+
     Write-Log "Fatal error starting Pode server: $_" -Level "ERROR"
     Write-Log "$($_.ScriptStackTrace)" -Level "ERROR"
     exit 1
 }
-
-# Keep PowerShell session open until Ctrl+C
-while ($true) { Start-Sleep -Seconds 1 }

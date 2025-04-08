@@ -10,8 +10,8 @@ param (
     [Parameter(Mandatory=$false)]
     [string]$ListenAddress = "localhost",
     
-    [Parameter(Mandatory=$true)]
-    [int]$Port,
+    [Parameter(Mandatory=$false)]
+    [int]$Port = 10000,
     
     [Parameter(Mandatory=$true)]
     [string]$InstallPath,
@@ -20,7 +20,7 @@ param (
     [string]$OllamaBaseUrl = "http://localhost:11434",
     
     [Parameter(Mandatory=$false)]
-    [string]$VectorsApiUrl = "http://localhost:8082",
+    [string]$VectorsApiUrl = "http://localhost:10001",
     
     [Parameter(Mandatory=$false)]
     [string]$EmbeddingModel = "mxbai-embed-large:latest", # Used for logging/status, not direct embedding here
@@ -132,15 +132,15 @@ function Get-RelevantDocuments {
         [Parameter(Mandatory=$true)]
         [string]$Query,
         [Parameter(Mandatory=$false)]
-        [int]$MaxResults = $using:MaxContextDocs,
+        [int]$MaxResults = $MaxContextDocs,
         [Parameter(Mandatory=$false)]
-        [double]$Threshold = $using:RelevanceThreshold,
+        [double]$Threshold = $RelevanceThreshold,
         [Parameter(Mandatory=$false)]
-        [string]$Mode = $using:QueryMode,
+        [string]$Mode = $QueryMode,
         [Parameter(Mandatory=$false)]
-        [double]$ChkWeight = $using:ChunkWeight,
+        [double]$ChkWeight = $ChunkWeight,
         [Parameter(Mandatory=$false)]
-        [double]$DocWeight = $using:DocumentWeight
+        [double]$DocWeight = $DocumentWeight
     )
     
     Write-ApiLog -Message "Querying Vectors API ($Mode mode) for: '$Query' (Max: $MaxResults, Threshold: $Threshold)" -Level "INFO"
@@ -155,7 +155,7 @@ function Get-RelevantDocuments {
         # Query Chunks
         if ($Mode -eq "chunks" -or $Mode -eq "both") {
             try {
-                $chunkResponse = Invoke-RestMethod -Uri "$($using:VectorsApiUrl)/api/search/chunks" -Method Post -Body ($baseBody | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 30 -ErrorAction Stop
+                $chunkResponse = Invoke-RestMethod -Uri "$($VectorsApiUrl)/api/search/chunks" -Method Post -Body ($baseBody | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 30 -ErrorAction Stop
                 if ($chunkResponse.success -and $chunkResponse.results) {
                     Write-ApiLog -Message "Found $($chunkResponse.count) matching chunks." -Level "DEBUG" # Changed level
                     $weight = if ($Mode -eq "both") { $ChkWeight } else { 1.0 }
@@ -171,7 +171,7 @@ function Get-RelevantDocuments {
         # Query Documents
         if ($Mode -eq "documents" -or $Mode -eq "both") {
              try {
-                $docResponse = Invoke-RestMethod -Uri "$($using:VectorsApiUrl)/api/search/documents" -Method Post -Body ($baseBody | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 30 -ErrorAction Stop
+                $docResponse = Invoke-RestMethod -Uri "$($VectorsApiUrl)/api/search/documents" -Method Post -Body ($baseBody | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 30 -ErrorAction Stop
                 if ($docResponse.success -and $docResponse.results) {
                     Write-ApiLog -Message "Found $($docResponse.count) matching documents." -Level "DEBUG" # Changed level
                     $weight = if ($Mode -eq "both") { $DocWeight } else { 1.0 }
@@ -222,7 +222,7 @@ function Format-RelevantContextForOllama {
 function Get-OllamaModels {
     param ([Parameter(Mandatory=$false)] [bool]$IncludeDetails = $false)
     try {
-        $response = Invoke-RestMethod -Uri "$($using:OllamaBaseUrl)/api/tags" -Method Get -TimeoutSec 10 -ErrorAction Stop
+        $response = Invoke-RestMethod -Uri "$($OllamaBaseUrl)/api/tags" -Method Get -TimeoutSec 10 -ErrorAction Stop
         $models = if ($IncludeDetails) { $response.models } else { $response.models.name }
         return @{ success = $true; models = $models; count = $models.Count }
     } catch {
@@ -233,7 +233,7 @@ function Get-OllamaModels {
 
 function Get-VectorDbStats {
      try {
-        $response = Invoke-RestMethod -Uri "$($using:VectorsApiUrl)/status" -Method Get -TimeoutSec 10 -ErrorAction Stop
+        $response = Invoke-RestMethod -Uri "$($VectorsApiUrl)/status" -Method Get -TimeoutSec 10 -ErrorAction Stop
         # Assuming the /status endpoint returns the stats directly
         return @{ success = $true; stats = $response } 
     } catch {
@@ -265,7 +265,7 @@ function Send-ChatToOllama {
         # Escape the literal $ in the regex pattern with a backtick
         Write-ApiLog -Message ('Sending request to Ollama: ' + ($jsonBody -replace '"password":".*?"', '"password":"***"')) -Level "DEBUG" # Log request without sensitive data if any
         
-        $response = Invoke-RestMethod -Uri "$($using:OllamaBaseUrl)/api/chat" -Method Post -Body $jsonBody -ContentType "application/json" -TimeoutSec 120 -ErrorAction Stop # Increased timeout
+        $response = Invoke-RestMethod -Uri "$($OllamaBaseUrl)/api/chat" -Method Post -Body $jsonBody -ContentType "application/json" -TimeoutSec 120 -ErrorAction Stop # Increased timeout
         
         return @{ success = $true; result = $response }
     } catch {
@@ -284,17 +284,23 @@ try {
     # Start the server without the -Endpoint parameter, as it's added above
     Start-PodeServer -Threads 4 {
         Add-PodeEndpoint -Address $ListenAddress -Port $Port -Protocol Http
-        # Middleware & OpenAPI Setup
-        Enable-PodeOpenApi -Title "RAG Proxy API" -Version "1.0.0" -Description "Proxy API for interacting with Ollama, augmented with context from a vector database." -ErrorAction Stop
 
-        # --- API Routes ---
+        $ollamaUrl = $OllamaBaseUrl
+        $vectorsApiUrl = $VectorsApiUrl
+        $embeddingModel = $EmbeddingModel # Informational
+        $relevanceThreshold = $RelevanceThreshold
+        $maxContextDocs = $MaxContextDocs
+        $queryMode = $QueryMode
+        $chunkWeight = $ChunkWeight
+        $documentWeight = $DocumentWeight
+        $contextOnlyMode = $ContextOnlyMode.IsPresent
 
         # GET / - Basic info
         Add-PodeRoute -Method Get -Path "/" -ScriptBlock {
             Write-PodeJsonResponse -Value @{
                 status = "ok"
                 message = "RAG Proxy API running"
-                contextOnlyMode = $using:ContextOnlyMode.IsPresent
+                contextOnlyMode = $using:contextOnlyMode
                 routes = @(
                     "/api/chat - POST: Chat with context augmentation",
                     "/api/search - POST: Search for relevant documents/chunks",
@@ -303,36 +309,28 @@ try {
                     "/status - GET: Get API proxy status"
                 )
             }
-        } -OpenApi @{
-            Summary = "API Information"
-            Description = "Provides basic status and lists available routes."
-            Responses = @{ "200" = @{ Description = "API status and routes" } }
-        }
+        } 
 
         # GET /status
         Add-PodeRoute -Method Get -Path "/status" -ScriptBlock {
              Write-PodeJsonResponse -Value @{
                 status = "ok"
-                ollamaUrl = $using:OllamaBaseUrl
-                vectorsApiUrl = $using:VectorsApiUrl
-                embeddingModel = $using:EmbeddingModel # Informational
-                relevanceThreshold = $using:RelevanceThreshold
-                maxContextDocs = $using:MaxContextDocs
-                queryMode = $using:QueryMode
-                chunkWeight = $using:ChunkWeight
-                documentWeight = $using:DocumentWeight
-                contextOnlyMode = $using:ContextOnlyMode.IsPresent
+                ollamaUrl = $using:ollamaUrl
+                vectorsApiUrl = $using:vectorsApiUrl
+                embeddingModel = $using:embeddingModel # Informational
+                relevanceThreshold = $using:relevanceThreshold
+                maxContextDocs = $using:maxContextDocs
+                queryMode = $using:queryMode
+                chunkWeight = $using:chunkWeight
+                documentWeight = $using:documentWeight
+                contextOnlyMode = $using:contextOnlyMode
             }
-        } -OpenApi @{
-            Summary = "Proxy Server Status"
-            Description = "Returns the current configuration of the RAG Proxy API server."
-             Responses = @{ "200" = @{ Description = "Proxy configuration details" } }
         }
 
         # GET /api/models
         Add-PodeRoute -Method Get -Path "/api/models" -ScriptBlock {
             try {
-                $includeDetails = $WebEvent.Request.Query['include_details'] -eq 'true'
+                $includeDetails = $WebEvent.Query['include_details'] -eq 'true'
                 $modelsResult = Get-OllamaModels -IncludeDetails $includeDetails
                 if ($modelsResult.success) {
                     Write-PodeJsonResponse -Value @{ models = $modelsResult.models; count = $modelsResult.count }
@@ -342,17 +340,7 @@ try {
                 }
             } catch {
                  Write-ApiLog -Message "Error in GET /api/models: $_" -Level "ERROR"
-                 Set-PodeResponseStatus -Code 500
-                 Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
-            }
-        } -OpenApi @{
-            Summary = "Get Available Ollama Models"
-            Description = "Retrieves the list of models available from the configured Ollama instance."
-            Parameters = @( @{ Name = "include_details"; In = "query"; Schema = @{ type = "boolean" }; Description = "Include full model details (default: false)" } )
-            Responses = @{
-                "200" = @{ Description = "List of available models" }
-                "502" = @{ Description = "Bad Gateway - Error communicating with Ollama" }
-                "500" = @{ Description = "Internal Server Error" }
+                 Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
         }
 
@@ -363,21 +351,11 @@ try {
                 if ($statsResult.success) {
                     Write-PodeJsonResponse -Value @{ success = $true; stats = $statsResult.stats }
                 } else {
-                    Set-PodeResponseStatus -Code 502 # Bad Gateway (issue talking to Vectors API)
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Failed to retrieve stats from Vectors API"; details = $statsResult.error }
+                    Write-PodeJsonResponse -StatusCode 502 -Value @{ success = $false; error = "Failed to retrieve stats from Vectors API"; details = $statsResult.error }
                 }
             } catch {
                  Write-ApiLog -Message "Error in GET /api/stats: $_" -Level "ERROR"
-                 Set-PodeResponseStatus -Code 500
-                 Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
-            }
-        } -OpenApi @{
-            Summary = "Get Vector Database Stats"
-            Description = "Retrieves statistics from the configured Vectors API."
-            Responses = @{
-                "200" = @{ Description = "Vector database statistics" }
-                "502" = @{ Description = "Bad Gateway - Error communicating with Vectors API" }
-                "500" = @{ Description = "Internal Server Error" }
+                 Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
         }
 
@@ -386,69 +364,41 @@ try {
             try {
                 $data = $WebEvent.Data
                 if ($null -eq $data -or [string]::IsNullOrEmpty($data.query)) {
-                    Set-PodeResponseStatus -Code 400
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Bad request: Required parameter missing: query" }; return
+                    Write-PodeJsonResponse -StatusCode 400 -Value @{ success = $false; error = "Bad request: Required parameter missing: query" }; return
                 }
                 
                 $query = $data.query
-                $maxResults = if ($null -ne $data.max_results) { $data.max_results } else { $using:MaxContextDocs }
-                $threshold = if ($null -ne $data.threshold) { $data.threshold } else { $using:RelevanceThreshold }
-                $mode = if ($null -ne $data.mode) { $data.mode } else { $using:QueryMode }
-                $chkWeight = if ($null -ne $data.chunk_weight) { $data.chunk_weight } else { $using:ChunkWeight }
-                $docWeight = if ($null -ne $data.document_weight) { $data.document_weight } else { $using:DocumentWeight }
+                $maxResults = if ($null -ne $data.max_results) { $data.max_results } else { $maxContextDocs }
+                $threshold = if ($null -ne $data.threshold) { $data.threshold } else { $relevanceThreshold }
+                $mode = if ($null -ne $data.mode) { $data.mode } else { $QueryMode }
+                $chkWeight = if ($null -ne $data.chunk_weight) { $data.chunk_weight } else { $chunkWeight }
+                $docWeight = if ($null -ne $data.document_weight) { $data.document_weight } else { $documentWeight }
 
                 $searchResult = Get-RelevantDocuments -Query $query -MaxResults $maxResults -Threshold $threshold -Mode $mode -ChkWeight $chkWeight -DocWeight $docWeight
                 
                 if ($searchResult.success) {
                     Write-PodeJsonResponse -Value @{ success = $true; query = $query; results = $searchResult.results; count = $searchResult.count }
                 } else {
-                    Set-PodeResponseStatus -Code 502 # Bad Gateway or internal error during search
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Search failed"; details = $searchResult.error }
+                    Write-PodeJsonResponse -StatusCode 502 -Value @{ success = $false; error = "Search failed"; details = $searchResult.error }
                 }
             } catch {
                  Write-ApiLog -Message "Error in POST /api/search: $_" -Level "ERROR"
-                 Set-PodeResponseStatus -Code 500
-                 Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                 Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
-        } -OpenApi @{
-            Summary = "Search Relevant Context"
-            Description = "Performs a semantic search via the Vectors API to find relevant document chunks or aggregated document scores based on the query."
-            RequestBody = @{
-                Required = $true
-                Content = @{ "application/json" = @{ Schema = @{ 
-                    type = "object"; 
-                    properties = @{ 
-                        query = @{ type = "string"; description = "The search query text" }; 
-                        max_results = @{ type = "integer"; description = "Max results (default: $($using:MaxContextDocs))" }; 
-                        threshold = @{ type = "number"; format="double"; description = "Min similarity score (default: $($using:RelevanceThreshold))" }; 
-                        mode = @{ type = "string"; enum=@("chunks", "documents", "both"); description = "Search mode (default: $($using:QueryMode))" };
-                        chunk_weight = @{ type = "number"; format="double"; description = "Weight for chunk scores in 'both' mode (default: $($using:ChunkWeight))" };
-                        document_weight = @{ type = "number"; format="double"; description = "Weight for document scores in 'both' mode (default: $($using:DocumentWeight))" };
-                    }; 
-                    required = @("query") 
-                } } }
-            }
-            Responses = @{
-                "200" = @{ Description = "Search results" }
-                "400" = @{ Description = "Bad Request (missing query)" }
-                "502" = @{ Description = "Bad Gateway or Search Error" }
-                "500" = @{ Description = "Internal Server Error" }
-            }
-        }
+        } 
 
         # POST /api/chat
         Add-PodeRoute -Method Post -Path "/api/chat" -ScriptBlock {
             try {
                 $data = $WebEvent.Data
                 if ($null -eq $data -or $null -eq $data.messages) {
-                    Set-PodeResponseStatus -Code 400
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Bad request: Required parameter missing: messages" }; return
+                    Write-PodeJsonResponse -StatusCode 400 -Value @{ success = $false; error = "Bad request: Required parameter missing: messages" }; return
                 }
                 
                 $messages = $data.messages
                 $model = if ($null -ne $data.model) { $data.model } else { "llama3" } # Default model
-                $maxResults = if ($null -ne $data.max_context_docs) { $data.max_context_docs } else { $using:MaxContextDocs }
-                $threshold = if ($null -ne $data.threshold) { $data.threshold } else { $using:RelevanceThreshold }
+                $maxResults = if ($null -ne $data.max_context_docs) { $data.max_context_docs } else { $MaxContextDocs }
+                $threshold = if ($null -ne $data.threshold) { $data.threshold } else { $RelevanceThreshold }
                 $enhanceContext = if ($null -ne $data.enhance_context) { $data.enhance_context } else { $true }
                 $temperature = if ($null -ne $data.temperature) { $data.temperature } else { 0.7 }
                 $numCtx = if ($null -ne $data.num_ctx) { $data.num_ctx } else { 4096 } # Default context window
@@ -463,11 +413,11 @@ try {
 
                 if ($enhanceContext -and $null -ne $latestUserMessage) {
                     $searchPerformed = $true
-                    $queryMode = if ($null -ne $data.query_mode) { $data.query_mode } else { $using:QueryMode }
-                    $chkWeight = if ($null -ne $data.chunk_weight) { $data.chunk_weight } else { $using:ChunkWeight }
-                    $docWeight = if ($null -ne $data.document_weight) { $data.document_weight } else { $using:DocumentWeight }
+                    $qMode = if ($null -ne $data.query_mode) { $data.query_mode } else { $queryMode }
+                    $chkWeight = if ($null -ne $data.chunk_weight) { $data.chunk_weight } else { $chunkWeight }
+                    $docWeight = if ($null -ne $data.document_weight) { $data.document_weight } else { $documentWeight }
                     
-                    $searchResult = Get-RelevantDocuments -Query $latestUserMessage -MaxResults $maxResults -Threshold $threshold -Mode $queryMode -ChkWeight $chkWeight -DocWeight $docWeight
+                    $searchResult = Get-RelevantDocuments -Query $latestUserMessage -MaxResults $maxResults -Threshold $threshold -Mode $qMode -ChkWeight $chkWeight -DocWeight $docWeight
                     
                     if ($searchResult.success -and $searchResult.count -gt 0) {
                         Write-ApiLog -Message "Found $($searchResult.count) relevant documents for context." -Level "INFO"
@@ -487,7 +437,7 @@ try {
 
                 if ($null -ne $formattedContext) {
                     # Inject context into system message or add a new one
-                    $contextPrefix = if ($using:ContextOnlyMode) {
+                    $contextPrefix = if ($ContextOnlyMode) {
                         "IMPORTANT: You must ONLY use information from the provided context below to answer the user's question. Do NOT use your own knowledge or training data. If the context doesn't contain relevant information, state that clearly."
                     } else {
                         "Use the following context to help answer the user's question:"
@@ -500,7 +450,7 @@ try {
                     } else {
                         $ollamaMessages = @(@{ role = 'system'; content = $fullSystemContent }) + $ollamaMessages
                     }
-                } elseif ($using:ContextOnlyMode -and $searchPerformed) {
+                } elseif ($ContextOnlyMode -and $searchPerformed) {
                      # Context-Only mode, search was done, but nothing found
                      $noContextMsg = "IMPORTANT: No relevant context was found for the user's query. Inform the user that you cannot answer the question based *only* on the provided context, as required."
                      if ($systemMessageIndex -ge 0) {
@@ -525,51 +475,13 @@ try {
                     }
                     Write-PodeJsonResponse -Value $responseBody
                 } else {
-                    Set-PodeResponseStatus -Code 502 # Bad Gateway (issue talking to Ollama)
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Failed to get response from Ollama"; details = $chatResult.error }
+                    Write-PodeJsonResponse -StatusCode 502 -Value @{ success = $false; error = "Failed to get response from Ollama"; details = $chatResult.error }
                 }
 
             } catch {
                  Write-ApiLog -Message "Error in POST /api/chat: $_" -Level "ERROR"
-                 Set-PodeResponseStatus -Code 500
-                 Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                 Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
-        } -OpenApi @{
-            Summary = "Chat with RAG Context"
-            Description = "Sends a chat request to Ollama, potentially augmenting the prompt with relevant context retrieved from the vector database based on the latest user message."
-            RequestBody = @{
-                Required = $true
-                Content = @{ "application/json" = @{ Schema = @{ 
-                    type = "object"; 
-                    properties = @{ 
-                        messages = @{ type = "array"; items = @{ type="object"; properties = @{ role=@{type="string"}; content=@{type="string"}} } }; 
-                        model = @{ type = "string"; description = "Ollama model name (default: llama3)" }; 
-                        context = @{ type = "array"; items = @{ type="integer" }; description = "Ollama conversation context (for history)" };
-                        enhance_context = @{ type = "boolean"; description = "Perform vector search for context (default: true)" };
-                        max_context_docs = @{ type = "integer"; description = "Max context docs (default: $($using:MaxContextDocs))" }; 
-                        threshold = @{ type = "number"; format="double"; description = "Context relevance threshold (default: $($using:RelevanceThreshold))" }; 
-                        temperature = @{ type = "number"; format="double"; description = "Ollama temperature (default: 0.7)" };
-                        num_ctx = @{ type = "integer"; description = "Ollama context window size (default: 4096)" };
-                        query_mode = @{ type = "string"; enum=@("chunks", "documents", "both"); description = "Vector search mode (default: $($using:QueryMode))" };
-                        # Weights only apply if mode is 'both'
-                        chunk_weight = @{ type = "number"; format="double"; description = "Chunk weight for 'both' mode (default: $($using:ChunkWeight))" };
-                        document_weight = @{ type = "number"; format="double"; description = "Document weight for 'both' mode (default: $($using:DocumentWeight))" };
-                    }; 
-                    required = @("messages") 
-                } } }
-            }
-            Responses = @{
-                "200" = @{ Description = "Ollama chat response (potentially with context_info added)" }
-                "400" = @{ Description = "Bad Request (missing messages)" }
-                "502" = @{ Description = "Bad Gateway - Error communicating with Ollama or Vectors API" }
-                "500" = @{ Description = "Internal Server Error" }
-            }
-        }
-
-        # Default route for 404
-        Add-PodeRoute -Method * -Path * -ScriptBlock {
-            Set-PodeResponseStatus -Code 404
-            Write-PodeJsonResponse -Value @{ success = $false; error = "Endpoint not found: $($WebEvent.Request.Url.Path)" }
         }
     }
 
@@ -583,6 +495,3 @@ try {
     Write-ApiLog "$($_.ScriptStackTrace)" -Level "ERROR"
     exit 1
 }
-
-# Keep PowerShell session open until Ctrl+C
-while ($true) { Start-Sleep -Seconds 1 }

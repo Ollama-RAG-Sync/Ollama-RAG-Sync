@@ -4,12 +4,9 @@ param (
     
     [Parameter(Mandatory=$true)]
     [string]$InstallPath,
-    
+  
     [Parameter(Mandatory=$false)]
-    [string[]]$OmitFolders = @('.git', 'node_modules', 'bin', 'obj'),
-    
-    [Parameter(Mandatory=$true)]
-    [int]$Port,
+    [int]$Port = 10003,
     
     [Parameter(Mandatory=$false)]
     [string]$ApiPath = "/api"
@@ -91,6 +88,17 @@ try {
         Add-PodeEndpoint -Address $ListenAddress -Port $Port -Protocol Http
 
         # --- API Routes ---
+
+        Add-PodeRoute -Method Get -Path "/" -ScriptBlock {
+            Write-PodeJsonResponse -Value @{
+                status = "ok"
+                message = "FileTracker API server running"
+                routes = @(
+                    "TODO"
+                )
+            }
+        } 
+
         # GET /api/collections
         Add-PodeRoute -Method Get -Path "$ApiPath/collections" -ScriptBlock {
             try {
@@ -264,8 +272,7 @@ try {
                     if ($data.watchDeleted -eq $true) { $watchParams["WatchDeleted"] = $true }
                     if ($data.watchRenamed -eq $true) { $watchParams["WatchRenamed"] = $true }
                     if ($data.includeSubdirectories -eq $true) { $watchParams["IncludeSubdirectories"] = $true }
-                    $watchParams["OmitFolders"] = if ($data.omitFolders -and $data.omitFolders.Count -gt 0) { $data.omitFolders } else { $using:OmitFolders }
-                    
+                    if ($data.omitFolders -eq $true) { $watchParams["OmitFolders"] = $true }
                     $watchScriptPath = Join-Path $PSScriptRoot "Watch-FileTracker.ps1"
                     $job = Start-Job -Name "Watch_Collection_$collectionId" -ScriptBlock {
                         param($scriptPath, $params)
@@ -448,11 +455,7 @@ try {
                     Set-PodeResponseStatus -Code 400; Write-PodeJsonResponse -Value @{ success = $false; error = "Collection source folder not defined" }; return
                 }
                 
-                $customOmitFolders = $using:OmitFolders
-                if ($WebEvent.Data -and $WebEvent.Data.omitFolders -and $WebEvent.Data.omitFolders.Count -gt 0) {
-                    $customOmitFolders = $WebEvent.Data.omitFolders
-                }
-                
+                $customOmitFolders = $WebEvent.Data.omitFolders
                 $updateResult = Update-FileTracker -FolderPath $collection.source_folder -DatabasePath $using:DatabasePath -OmitFolders $customOmitFolders -CollectionId $collectionId
                 
                 if ($updateResult.success) {
@@ -492,12 +495,6 @@ try {
                 Write-PodeJsonResponse --StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
         }
-
- 
-        # Default route for 404
-        #Add-PodeRoute -Method * -Path * -ScriptBlock {
-        #    Write-PodeJsonResponse -Value @{ error = "Not found" } -StatusCode 404
-        #}
     }
 
     Write-Log "FileTracker REST API server running at http://localhost:$Port"
