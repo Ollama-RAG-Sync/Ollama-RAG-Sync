@@ -297,14 +297,23 @@ try {
         Add-PodeRoute -Method Get -Path "$ApiPath/collections/:collectionId/files" -ScriptBlock {
             try {
                 $collectionId = [int]$WebEvent.Parameters['collectionId']
-                $dirty = $WebEvent.Request.Query["dirty"] -eq "true"
-                $processed = $WebEvent.Request.Query["processed"] -eq "true"
-                $deleted = $WebEvent.Request.Query["deleted"] -eq "true"
+                $dirty = $false
+                $processed = $false
+                $deleted = $false
+
+                if ($null -ne $WebEvent.Query) {
+                    $dirtyRaw = $WebEvent.Query["dirty"]
+                    $dirty = ($null -ne $dirtyRaw) -and ($dirtyRaw -eq "true")
+                    $processedRaw = $WebEvent.Query["processed"]
+                    $processed = ($null -ne $processedRaw) -and ($processedRaw -eq "true")
+                    $deletedRaw = $WebEvent.Query["deleted"]
+                    $deleted = ($null -ne $deletedRaw) -and ($deletedRaw -eq "true")
+                }
                 
                 $params = @{ CollectionId = $collectionId; DatabasePath = $using:DatabasePath }
-                if ($dirty) { $params["DirtyOnly"] = $true }
-                elseif ($processed) { $params["ProcessedOnly"] = $true }
-                if ($deleted) { $params["DeletedOnly"] = $true }
+                $params["DirtyOnly"] = $dirty
+                $params["ProcessedOnly"] = $processed
+                $params["DeletedOnly"] = $deleted
                 
                 $files = Get-CollectionFiles @params
                 $result = @{ success = $true; files = $files; count = $files.Count; collection_id = $collectionId }
@@ -312,8 +321,7 @@ try {
                 
             } catch {
                 Write-Log "Error in GET /collections/$($WebEvent.Parameters['collectionId'])/files: $_" -Level "ERROR"
-                Set-PodeResponseStatus -Code 500
-                Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.ScriptStackTrace)" }
             }
         }  
 
