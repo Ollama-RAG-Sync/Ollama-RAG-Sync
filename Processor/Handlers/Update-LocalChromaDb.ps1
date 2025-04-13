@@ -115,7 +115,7 @@ function Test-VectorsApiAvailable {
         return $true
     }
     catch {
-        Write-CustomLog "Vectors API is not available at $VectorsApiUrl: $_" -Level "ERROR"
+        Write-CustomLog "Vectors API is not available at $VectorsApiUrl : $_" -Level "ERROR"
         return $false
     }
 }
