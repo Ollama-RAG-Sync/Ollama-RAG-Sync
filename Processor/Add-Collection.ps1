@@ -88,7 +88,7 @@ $WriteLogBlock = {
 }
 
 # Initialize the database
-Initialize-ProcessorDatabase -DatabasePath $DatabasePath -WriteLog $WriteLogBlock
+Initialize-ProcessorDatabase -InstallPath $InstallPath -DatabasePath $DatabasePath -WriteLog $WriteLogBlock
 
 try {
     Write-Log "Initializing collection processor for '$CollectionName' (ID: $CollectionId)..."

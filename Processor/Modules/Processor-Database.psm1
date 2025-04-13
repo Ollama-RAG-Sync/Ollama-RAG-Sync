@@ -5,6 +5,9 @@ function Initialize-ProcessorDatabase {
     param (
         [Parameter(Mandatory=$true)]
         [string]$DatabasePath,
+
+        [Parameter(Mandatory=$true)]
+        [string]$InstallPath,
         
         [Parameter(Mandatory=$true)]
         [scriptblock]$WriteLog
@@ -14,7 +17,7 @@ function Initialize-ProcessorDatabase {
         & $WriteLog "Initializing processor database..."
         
         # Create the processor database connection
-        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
         
         # Create collection_handlers table if it doesn't exist
         $createTableCommand = $connection.CreateCommand()

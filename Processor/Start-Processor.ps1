@@ -48,26 +48,12 @@ if (-not (Test-Path -Path $TempDir))
 
 # Import required modules
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
-$parentPath = Split-Path -Parent $scriptPath
-$databaseSharedModule = Join-Path -Path $parentPath -ChildPath "FileTracker\Database-Shared.psm1"
-# Check if SQLite assemblies exist
-$sqliteAssemblyPath = "$InstallPath\Microsoft.Data.Sqlite.dll"
-$sqliteAssemblyPath2 = "$InstallPath\SQLitePCLRaw.core.dll"
-$sqliteAssemblyPath3 = "$InstallPath\SQLitePCLRaw.provider.e_sqlite3.dll"
 
-# Load SQLite assembly
-try {
-    Add-Type -Path $sqliteAssemblyPath
-    Add-Type -Path $sqliteAssemblyPath2
-    Add-Type -Path $sqliteAssemblyPath3
+# Initialize SQLite Environment once before starting server (using the imported function)
+if (-not (Initialize-SqliteEnvironment -InstallPath $InstallPath)) {
+   Write-Log "Failed to initialize SQLite environment. API cannot start." -Level "ERROR"
+   exit 1
 }
-catch {
-    Write-Error "Error loading SQLite assemblies: $_"
-    Write-Host "Please make sure you've run Install-FileTracker.ps1 first." -ForegroundColor Red
-    exit 1
-}
-# Import FileTracker's shared database module
-Import-Module $databaseSharedModule -Force
 
 # Import processor modules
 $modulesPath = Join-Path -Path $scriptPath -ChildPath "Modules"
@@ -117,7 +103,7 @@ $WriteLogBlock = {
 }
 
 # Initialize the database
-Initialize-ProcessorDatabase -DatabasePath $DatabasePath -WriteLog $WriteLogBlock
+Initialize-ProcessorDatabase -DatabasePath $DatabasePath -InstallPath $InstallPath -WriteLog $WriteLogBlock
 
 # Setup scriptblocks for API functions
 $GetCollectionsBlock = {
