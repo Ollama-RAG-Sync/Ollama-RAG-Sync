@@ -72,34 +72,38 @@ param (
     [switch]$Watch,
     
     [Parameter(Mandatory = $false)]
-    [switch]$WatchCreated = $true,
+    [switch]$WatchCreated = $false,
     
     [Parameter(Mandatory = $false)]
-    [switch]$WatchModified = $true,
+    [switch]$WatchModified = $false,
     
     [Parameter(Mandatory = $false)]
-    [switch]$WatchDeleted = $true,
+    [switch]$WatchDeleted = $false,
     
     [Parameter(Mandatory = $false)]
-    [switch]$WatchRenamed = $true,
+    [switch]$WatchRenamed = $false,
     
     [Parameter(Mandatory = $false)]
-    [switch]$IncludeSubdirectories = $true,
+    [switch]$IncludeSubdirectories = $false,
     
     [Parameter(Mandatory = $false)]
-    [int]$ProcessInterval = 15
+    [int]$WatchInterval = 15,
+
+    [Parameter(Mandatory = $false)]
+    [string]$DatabasePath # Optional override
 )
-$DatabasePath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
 
 # Import the shared database module
 $scriptParentPath = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
-$databaseSharedPath = Join-Path -Path $scriptParentPath -ChildPath "Database-Shared.psm1"
-Import-Module -Name $databaseSharedPath -Force
+$databaseSharedModulePath = Join-Path -Path $scriptParentPath -ChildPath "Database-Shared.psm1"
+Import-Module -Name $databaseSharedModulePath -Force
 
-# If DatabasePath is not provided, use the default path
+# Determine Database Path
 if (-not $DatabasePath) {
     $DatabasePath = Get-DefaultDatabasePath -InstallPath $InstallPath
-    Write-Host "Using default database path: $DatabasePath" -ForegroundColor Cyan
+    Write-Host "Using determined database path: $DatabasePath" -ForegroundColor Cyan
+} else {
+     Write-Host "Using provided database path: $DatabasePath" -ForegroundColor Cyan
 }
 
 # Check if the folder exists
@@ -114,10 +118,10 @@ $initScript = Join-Path -Path $scriptParentPath -ChildPath "Initialize-Database.
 
 # Create a new collection
 Write-Host "Creating collection '$CollectionName'..." -ForegroundColor Cyan
-$collection = New-Collection -Name $CollectionName -Description $Description -InstallPath $InstallPath -SourceFolder $FolderPath
+$collection = New-Collection -Name $CollectionName -Description $Description -SourceFolder $FolderPath -IncludeExtensions ($IncludeExtensions -join ',') -ExcludeFolders ($OmitFolders -join ',') -InstallPath $InstallPath -DatabasePath $DatabasePath
 
 if (-not $collection) {
-    Write-Error "Failed to create collection."
+    Write-Error "Failed to create collection. Check previous errors."
     exit 1
 }
 
@@ -150,8 +154,9 @@ Write-Host "Found $totalFiles files to add to collection"
 $files | ForEach-Object {
     $filePath = $_.FullName
     
+    Write-Host "$filePath" -ForegroundColor Cyan
     # Add file to collection
-    $result = Add-FileToCollection -CollectionId $collection.id -FilePath $filePath -Dirty $true -DatabasePath $DatabasePath
+    $result = Add-FileToCollection -CollectionId $collection.id -FilePath $filePath -Dirty $true -DatabasePath $DatabasePath -InstallPath $InstallPath
     
     if ($result) {
         $status = if ($result.updated) { "Updated" } else { "Added" }
@@ -174,9 +179,9 @@ Write-Host "All files have been marked as 'dirty' for initial processing." -Fore
 if ($Watch) {
     Write-Host "Starting file watcher for collection '$CollectionName'..." -ForegroundColor Cyan
     
-    # Store watch settings in database
+    # Store watch settings in database (using a helper function would be better, but for now direct DB access)
     try {
-        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
         
         # Generate a unique key for this collection's watch settings
         $watchKey = "collection_${collection.id}_watch"
@@ -189,7 +194,7 @@ if ($Watch) {
             watchDeleted = [bool]$WatchDeleted
             watchRenamed = [bool]$WatchRenamed
             includeSubdirectories = [bool]$IncludeSubdirectories
-            processInterval = $ProcessInterval
+            watchInterval = $WatchInterval
             omitFolders = $OmitFolders
         }
         
@@ -226,7 +231,7 @@ if ($Watch) {
             WatchDeleted = [bool]$WatchDeleted
             WatchRenamed = [bool]$WatchRenamed
             IncludeSubdirectories = [bool]$IncludeSubdirectories
-            ProcessInterval = $ProcessInterval
+            WatchInterval = $WatchInterval
             OmitFolders = $OmitFolders
         }
         
@@ -238,13 +243,20 @@ if ($Watch) {
             $watchParams["FileFilter"] = $fileFilter
         }
         
+        # Add InstallPath and CollectionId to parameters for the watch script
+        $watchParams["InstallPath"] = $InstallPath
+        $watchParams["CollectionId"] = $collection.id
+        # The watch script will determine its own DB path based on CollectionId
+
         # Start the job
         $job = Start-Job -Name "Watch_Collection_$($collection.id)" -ScriptBlock {
             param($scriptPath, $params)
+            # Ensure the shared module is available in the job's scope if needed directly by Watch-FileTracker.ps1
+            # Import-Module -Name $using:databaseSharedModulePath -Force # Potentially needed depending on Watch-FileTracker.ps1 implementation
             & $scriptPath @params
         } -ArgumentList $watchScriptPath, $watchParams
         
-        Write-Host "File watcher job started with ID: $($job.Id)" -ForegroundColor Green
+        Write-Host "File watcher job started with ID: $($job.Id) for Collection ID: $($collection.id)" -ForegroundColor Green
         Write-Host "Monitoring for file changes: " -NoNewline
         
         $watchTypes = @()

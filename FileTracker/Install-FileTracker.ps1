@@ -369,7 +369,7 @@ try {
     # Report results
     if ($successCount -eq $totalPackages) {
         Write-Host "SQLite assemblies installed successfully ($successCount/$totalPackages)."
-        Write-Host "Installation directory: $installFolder" -ForegroundColor Cyan
+        Write-Host "Installation directory: $InstallPath" -ForegroundColor Cyan
     }
     else {
         Write-Host "SQLite assembly installation partially completed ($successCount/$totalPackages)."

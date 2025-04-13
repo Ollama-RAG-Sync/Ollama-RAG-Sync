@@ -5,73 +5,78 @@ function Update-FileProcessingStatus {
     .DESCRIPTION
         This function updates a file's status in the SQLite database by setting its "Dirty" flag.
     .PARAMETER FilePath
-        The full path of the file to update.
+        The full path of the file to update (used in SingleFile mode).
+    .PARAMETER InstallPath
+        The installation path containing the database and assemblies.
     .PARAMETER DatabasePath
-        The path to the SQLite database.
-    .PARAMETER FolderPath
-        The path to the monitored folder. If specified instead of DatabasePath, the function will
-        automatically compute the database path as [FolderPath]\.ai\FileTracker.db.
+        Optional path to the SQLite database file. If not provided, it's derived from InstallPath.
     .PARAMETER All
-        If specified, updates all files with the opposite status.
+        If specified, updates all files in the specified CollectionId.
+    .PARAMETER CollectionId
+        The ID of the collection to update when using -All. Mandatory for AllFiles set.
     .PARAMETER Dirty
-        Boolean value indicating whether to mark the file as dirty/to process (true) or as processed (false).
+        Boolean value indicating whether to mark the file(s) as dirty/to process (true) or as processed (false).
     #>
     [CmdletBinding(DefaultParameterSetName = "SingleFile")]
     param (
         [Parameter(Mandatory = $true, ParameterSetName = "SingleFile")]
         [string]$FilePath,
         
+        [Parameter(Mandatory = $true)]
+        [string]$InstallPath,
+
         [Parameter(Mandatory = $false)]
         [string]$DatabasePath,
         
-        [Parameter(Mandatory = $false)]
-        [string]$FolderPath,
-        
         [Parameter(Mandatory = $true, ParameterSetName = "AllFiles")]
         [switch]$All,
+
+        [Parameter(Mandatory = $true, ParameterSetName = "AllFiles")]
+        [int]$CollectionId,
         
         [Parameter(Mandatory = $true)]
         [bool]$Dirty
     )
+    
+    # Import the shared database module - needed for DB functions
+    $scriptParentPath = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
+    $databaseSharedModulePath = Join-Path -Path $scriptParentPath -ChildPath "Database-Shared.psm1"
+    Import-Module -Name $databaseSharedModulePath -Force
 
     # Determine new and old status values
     $newStatus = [int]$Dirty
-    $oldStatus = [int](-not $Dirty)
+    $oldStatus = [int](-not $Dirty) # The status we are changing FROM
     $actionText = if ($Dirty) { "as dirty (to process)" } else { "as processed" }
     
-    # Validate that we have a DatabasePath
+    # Determine Database Path
     if (-not $DatabasePath) {
-        Write-Error "Either DatabasePath or FolderPath must be specified."
+        $DatabasePath = Get-DefaultDatabasePath -InstallPath $InstallPath
+        Write-Verbose "Using determined database path: $DatabasePath"
+    } else {
+         Write-Verbose "Using provided database path: $DatabasePath"
+    }
+
+    # Ensure database exists (Initialization should happen elsewhere)
+    if (-not (Test-Path -Path $DatabasePath)) {
+        Write-Error "Database not found at $DatabasePath. Please initialize it first."
         return $false
     }
 
-    $sqliteAssemblyPath = "$FolderPath\Microsoft.Data.Sqlite.dll"
-    $sqliteAssemblyPath2 = "$FolderPah\SQLitePCLRaw.core.dll"
-    $sqliteAssemblyPath3 = "$FolderPath\SQLitePCLRaw.provider.e_sqlite3.dll"
-
-    # Load SQLite assembly
-    Add-Type -Path $sqliteAssemblyPath
-    Add-Type -Path $sqliteAssemblyPath2
-    Add-Type -Path $sqliteAssemblyPath3
-
-    # Create/Open the database
     try {
-        # Set SQLitePCLRaw provider
-        [SQLitePCL.raw]::SetProvider([SQLitePCL.SQLite3Provider_e_sqlite3]::new())
-    
-        # Create connection to SQLite database
-        $connectionString = "Data Source=$DatabasePath"
-        $connection = New-Object Microsoft.Data.Sqlite.SqliteConnection($connectionString)
-        $null = $connection.Open()
+        # Get connection (this also initializes SQLite environment if needed)
+        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
         
         # Begin transaction for better performance
         $transaction = $connection.BeginTransaction()
         
         if ($PSCmdlet.ParameterSetName -eq "SingleFile") {
-            # Check if the file exists in the database
+            # Check if the file exists in the database (Note: FilePath might not be unique across collections)
+            # This function might need CollectionId even for single file if uniqueness isn't guaranteed by FilePath alone.
+            # Assuming FilePath IS unique for now, but this is a potential issue.
             $checkCommand = $connection.CreateCommand()
-            $checkCommand.CommandText = "SELECT id, Dirty, Deleted FROM files WHERE FilePath = @FilePath"
+            $checkCommand.CommandText = "SELECT id, Dirty, Deleted, collection_id FROM files WHERE FilePath = @FilePath" # Also get collection_id
             $null = $checkCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
+            $checkCommand.Transaction = $transaction # Assign transaction
             
             $reader = $checkCommand.ExecuteReader()
             
@@ -80,14 +85,15 @@ function Update-FileProcessingStatus {
                 Write-Error "File not found in the database: $FilePath"
                 return $false
             }
-            
+            $fileId = $reader.GetInt32(0)
             $currentStatus = $reader.GetInt32(1)
-            $toDeleteStatus = $reader.GetInt32(2)
+            $isDeleted = $reader.GetBoolean(2)
+            $fileCollectionId = $reader.GetInt32(3)
             $null = $reader.Close()
             
             # If file is marked for deletion, report this
-            if ($toDeleteStatus -eq 1) {
-                Write-Host "Warning: File is marked for deletion (missing from folder): $FilePath" -ForegroundColor Yellow
+            if ($isDeleted) {
+                Write-Host "Warning: File (ID: $fileId, Collection: $fileCollectionId) is marked as deleted: $FilePath" -ForegroundColor Yellow
             }
             
             # Check if the file already has the target status
@@ -96,69 +102,72 @@ function Update-FileProcessingStatus {
                 Write-Host "File is $statusText`: $FilePath" -ForegroundColor Yellow
                 return $true
             }
-            
-            # Update the file status
+            # Update the file status using FileId for uniqueness
             $updateCommand = $connection.CreateCommand()
-            $updateCommand.CommandText = "UPDATE files SET Dirty = @NewStatus WHERE FilePath = @FilePath"
-            $null = $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
+            $updateCommand.CommandText = "UPDATE files SET Dirty = @NewStatus WHERE id = @FileId" # Use ID now
+            $null = $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FileId", $fileId))) # Use ID
             $null = $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@NewStatus", $newStatus)))
+            $updateCommand.Transaction = $transaction # Assign transaction
             $null = $updateCommand.ExecuteNonQuery()
             
-            Write-Host "File marked $actionText`: $FilePath" -ForegroundColor Green
+            Write-Host "File (ID: $fileId, Collection: $fileCollectionId) marked $actionText`: $FilePath" -ForegroundColor Green
         }
-        else {
-            # Count files with the old status
+        else { # AllFiles parameter set
+            # Count files with the old status within the specified collection
             $countCommand = $connection.CreateCommand()
-            $countCommand.CommandText = "SELECT COUNT(*) FROM files WHERE Dirty = @OldStatus"
+            $countCommand.CommandText = "SELECT COUNT(*) FROM files WHERE Dirty = @OldStatus AND collection_id = @CollectionId"
             $countCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@OldStatus", $oldStatus)))
-            $filesToUpdateCount = $countCommand.ExecuteScalar()
+            $countCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $CollectionId)))
+            $countCommand.Transaction = $transaction # Assign transaction
+            $filesToUpdateCount = [int]$countCommand.ExecuteScalar()
             
             if ($filesToUpdateCount -eq 0) {
-                Write-Host "No files found that need updating." -ForegroundColor Yellow
+                Write-Host "No files found in Collection $CollectionId with status '$oldStatus' that need updating." -ForegroundColor Yellow
+                $transaction.Commit() # Commit even if nothing changed
                 return $true
             }
             
-            # Get list of files to update
+            Write-Host "Found $filesToUpdateCount files to mark $actionText in Collection $CollectionId."
+            
+            # Get list of files to update (optional, for reporting)
+            # Consider performance impact for very large collections if reporting individual files
             $selectCommand = $connection.CreateCommand()
-            $selectCommand.CommandText = "SELECT FilePath, Deleted FROM files WHERE Dirty = @OldStatus"
+            $selectCommand.CommandText = "SELECT id, FilePath, Deleted FROM files WHERE Dirty = @OldStatus AND collection_id = @CollectionId"
             $selectCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@OldStatus", $oldStatus)))
+            $selectCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $CollectionId)))
+            $selectCommand.Transaction = $transaction # Assign transaction
             $reader = $selectCommand.ExecuteReader()
             
-            $filePaths = @()
-            $deletedFilePaths = @()
+            $filesToReport = [System.Collections.Generic.List[object]]::new()
             while ($reader.Read()) {
-                $filePath = $reader["FilePath"]
-                $toDelete = $reader.GetInt32(1)
-                
-                if ($toDelete -eq 1) {
-                    $deletedFilePaths += $filePath
-                } else {
-                    $filePaths += $filePath
-                }
+                 $filesToReport.Add( @{ Id = $reader.GetInt32(0); Path = $reader.GetString(1); IsDeleted = $reader.GetBoolean(2) } )
             }
             $reader.Close()
             
-            # Update all files
+            # Update all files in the specified collection
             $updateCommand = $connection.CreateCommand()
-            $updateCommand.CommandText = "UPDATE files SET Dirty = @NewStatus WHERE Dirty = @OldStatus"
+            $updateCommand.CommandText = "UPDATE files SET Dirty = @NewStatus WHERE Dirty = @OldStatus AND collection_id = @CollectionId"
             $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@NewStatus", $newStatus)))
             $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@OldStatus", $oldStatus)))
+            $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $CollectionId)))
+            $updateCommand.Transaction = $transaction # Assign transaction
             $processed = $updateCommand.ExecuteNonQuery()
             
-            # Report updated files
-            foreach ($filePath in $filePaths) {
-                Write-Host "File marked $actionText`: $filePath" -ForegroundColor Green
+            # Report updated files (consider limiting output for large counts)
+            $reportLimit = 50 
+            $reportedCount = 0
+            foreach ($file in $filesToReport) {
+                 if ($reportedCount -lt $reportLimit) {
+                    $deleteWarning = if ($file.IsDeleted) { " (Note: File is also marked as deleted)" } else { "" }
+                    Write-Host "File (ID: $($file.Id)) marked $actionText`: $($file.Path)$deleteWarning" -ForegroundColor Green
+                    $reportedCount++
+                 } else {
+                     Write-Host "...and $($filesToReport.Count - $reportLimit) more files." -ForegroundColor Gray
+                     break
+                 }
             }
             
-            # Report files marked for deletion
-            if ($deletedFilePaths.Count -gt 0) {
-                Write-Host "The following files were marked $actionText but are also marked for deletion (missing):" -ForegroundColor Yellow
-                foreach ($filePath in $deletedFilePaths) {
-                    Write-Host " - $filePath" -ForegroundColor Magenta
-                }
-            }
-            
-            Write-Host "Marked $processed files $actionText." -ForegroundColor Green
+            Write-Host "Marked $processed files $actionText in Collection $CollectionId." -ForegroundColor Green
         }
         
         # Commit transaction

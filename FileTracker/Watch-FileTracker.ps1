@@ -30,7 +30,7 @@ param (
     [string]$LogPath = "",
 
     [Parameter(Mandatory = $false)]
-    [int]$ProcessInterval = 15,
+    [int]$WatchInterval = 15,
     
     [Parameter(Mandatory = $false)]
     [string[]]$OmitFolders = @(),
@@ -374,7 +374,7 @@ $scriptBlock = {
         $path = $Event.SourceEventArgs.FullPath
         $changeType = $Event.SourceEventArgs.ChangeType
         $events = $Event.MessageData.RecentEvents
-        $interval = $Event.MessageData.ProcessInterval
+        $watchInterval = $Event.MessageData.WatchInterval
         $dbPath = $Event.MessageData.DatabasePath
         $updateFileFunc = $Event.MessageData.UpdateFileFunction
         $omitFolders = $Event.MessageData.OmitFolders
@@ -387,7 +387,7 @@ $scriptBlock = {
         if ($events.ContainsKey($eventKey)) {
             $lastTime = $events[$eventKey]
             $timeDiff = (Get-Date) - $lastTime
-            if ($timeDiff.TotalSeconds -lt $interval) {
+            if ($timeDiff.TotalSeconds -lt $watchInterval) {
                 $isDuplicate = $true
             }
         }
@@ -425,7 +425,7 @@ $scriptBlock = {
 
 $data = @{
     RecentEvents = $recentEvents
-    ProcessInterval = $ProcessInterval
+    WatchInterval = $WatchInterval
     DatabasePath = $DatabasePath
     UpdateFileFunction = ${function:Update-FileInDatabase}
     OmitFolders = $OmitFolders

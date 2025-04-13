@@ -25,23 +25,28 @@ param (
     
     [Parameter(Mandatory = $true)]
     [string]$FolderPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$InstallPath, # Added mandatory InstallPath
     
     [Parameter(Mandatory = $false)]
-    [string[]]$OmitFolders = @(".ai", ".git"),
+    [string[]]$OmitFolders = @(".git"),
     
     [Parameter(Mandatory = $false)]
-    [string]$DatabasePath
+    [string]$DatabasePath # Made optional override
 )
 
 # Import the shared database module
 $scriptParentPath = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
-$databaseSharedPath = Join-Path -Path $scriptParentPath -ChildPath "Database-Shared.psm1"
-Import-Module -Name $databaseSharedPath -Force
+$databaseSharedModulePath = Join-Path -Path $scriptParentPath -ChildPath "Database-Shared.psm1"
+Import-Module -Name $databaseSharedModulePath -Force
 
-# If DatabasePath is not provided, use the default path
+# Determine Database Path
 if (-not $DatabasePath) {
-    $DatabasePath = Get-DefaultDatabasePath
-    Write-Host "Using default database path: $DatabasePath" -ForegroundColor Cyan
+    $DatabasePath = Get-DefaultDatabasePath -InstallPath $InstallPath
+    Write-Host "Using determined database path: $DatabasePath" -ForegroundColor Cyan
+} else {
+     Write-Host "Using provided database path: $DatabasePath" -ForegroundColor Cyan
 }
 
 # Check if the folder exists
@@ -81,8 +86,8 @@ function Test-PathInOmittedFolders {
 }
 
 try {
-    # Get the connection to the database
-    $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+    # Get the connection to the database (pass InstallPath)
+    $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
     
     # Find the collection by name
     $collectionCommand = $connection.CreateCommand()

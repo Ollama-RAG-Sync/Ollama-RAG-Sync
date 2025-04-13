@@ -22,40 +22,29 @@ param (
 
 # Import the shared database module
 $scriptParentPath = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
-$databaseSharedPath = Join-Path -Path $scriptParentPath -ChildPath "Database-Shared.psm1"
-Import-Module -Name $databaseSharedPath -Force
+$databaseSharedModulePath = Join-Path -Path $scriptParentPath -ChildPath "Database-Shared.psm1"
+Import-Module -Name $databaseSharedModulePath -Force
 
-$DatabasePath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
+# Determine Database Path
+$DatabasePath = Get-DefaultDatabasePath -InstallPath $InstallPath
+Write-Host "Initializing database at: $DatabasePath" -ForegroundColor Cyan
 
+# Ensure the directory for the database exists
+$dbDirectory = Split-Path -Path $DatabasePath -Parent
+if (-not (Test-Path -Path $dbDirectory)) {
+    New-Item -Path $dbDirectory -ItemType Directory -Force | Out-Null
+}
+
+# Create the file if it doesn't exist (Get-DatabaseConnection will handle opening/creating)
 if (-not (Test-Path -Path $DatabasePath)) {
-    New-Item -Path $DatabasePath -ItemType File
+    New-Item -Path $DatabasePath -ItemType File | Out-Null
+    Write-Host "Database file created."
 }
 
-# Check if SQLite assemblies exist
-$sqliteAssemblyPath = "$InstallPath\Microsoft.Data.Sqlite.dll"
-$sqliteAssemblyPath2 = "$InstallPath\SQLitePCLRaw.core.dll"
-$sqliteAssemblyPath3 = "$InstallPath\SQLitePCLRaw.provider.e_sqlite3.dll"
-
-# Load SQLite assembly
+# Create/Open the database and initialize tables
 try {
-    Add-Type -Path $sqliteAssemblyPath
-    Add-Type -Path $sqliteAssemblyPath2
-    Add-Type -Path $sqliteAssemblyPath3
-}
-catch {
-    Write-Error "Error loading SQLite assemblies: $_"
-    exit 1
-}
-
-# Create/Open the database
-try {
-    # Set SQLitePCLRaw provider
-    [SQLitePCL.raw]::SetProvider([SQLitePCL.SQLite3Provider_e_sqlite3]::new())
-    
-    # Create connection to SQLite database
-    $connectionString = "Data Source=$DatabasePath"
-    $connection = New-Object Microsoft.Data.Sqlite.SqliteConnection($connectionString)
-    $connection.Open()
+    # Get connection - this also ensures SQLite environment is initialized
+    $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
     
     # Create command object
     $command = $connection.CreateCommand()
@@ -73,7 +62,7 @@ CREATE TABLE IF NOT EXISTS collections (
     updated_at TEXT NOT NULL
 );
 "@
-    $command.ExecuteNonQuery()
+    $null = $command.ExecuteNonQuery()
     Write-Host "Created collections table" -ForegroundColor Green
     
     # Create files table if not exists - now with collection_id and OriginalUrl
@@ -92,7 +81,7 @@ CREATE TABLE IF NOT EXISTS files (
 CREATE INDEX IF NOT EXISTS idx_FilePath ON files(FilePath);
 CREATE INDEX IF NOT EXISTS idx_collection_id ON files(collection_id);
 "@
-    $command.ExecuteNonQuery()
+    $null = $command.ExecuteNonQuery()
     Write-Host "Created files table with collection support" -ForegroundColor Green
     
     # Create settings table if not exists
@@ -103,14 +92,14 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at TEXT NOT NULL
 );
 "@
-    $command.ExecuteNonQuery()
+    $null = $command.ExecuteNonQuery()
     Write-Host "Created settings table" -ForegroundColor Green
     
     # Set schema version
     $schemaVersionCommand = $connection.CreateCommand()
     $schemaVersionCommand.CommandText = "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('schema_version', '1.0', @UpdatedAt)"
-    $schemaVersionCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@UpdatedAt", [DateTime]::UtcNow.ToString("o"))))
-    $schemaVersionCommand.ExecuteNonQuery()
+    $null = $schemaVersionCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@UpdatedAt", [DateTime]::UtcNow.ToString("o"))))
+    $null = $schemaVersionCommand.ExecuteNonQuery()
     
     Write-Host "Database initialized successfully at $DatabasePath" -ForegroundColor Green
 }

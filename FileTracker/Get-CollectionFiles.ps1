@@ -53,22 +53,18 @@ param (
 
 # Import the shared database module
 $scriptParentPath = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
-$databaseSharedPath = Join-Path -Path $scriptParentPath -ChildPath "Database-Shared.psm1"
-Import-Module -Name $databaseSharedPath -Force
+$databaseSharedModulePath = Join-Path -Path $scriptParentPath -ChildPath "Database-Shared.psm1"
+Import-Module -Name $databaseSharedModulePath -Force
 
-$DatabasePath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
-$sqliteAssemblyPath = "$InstallPath\Microsoft.Data.Sqlite.dll"
-$sqliteAssemblyPath2 = "$InstallPath\SQLitePCLRaw.core.dll"
-$sqliteAssemblyPath3 = "$InstallPath\SQLitePCLRaw.provider.e_sqlite3.dll"
-
-# Load SQLite assembly
-Add-Type -Path $sqliteAssemblyPath
-Add-Type -Path $sqliteAssemblyPath2
-Add-Type -Path $sqliteAssemblyPath3
+# Determine Database Path
+# Note: This script doesn't accept $DatabasePath override, it relies solely on $InstallPath
+$DatabasePath = Get-DefaultDatabasePath -InstallPath $InstallPath
+Write-Verbose "Using database path: $DatabasePath"
 
 # Get collection by name if needed
 if ($CollectionName) {
-    $collections = Get-Collections -DatabasePath $DatabasePath
+    # Pass InstallPath to Get-Collections
+    $collections = Get-Collections -DatabasePath $DatabasePath -InstallPath $InstallPath 
     $collection = $collections | Where-Object { $_.name -eq $CollectionName }
     
     if (-not $collection) {
@@ -76,13 +72,23 @@ if ($CollectionName) {
         exit 1
     }
     
-    $CollectionId = $collection.id
+    $CollectionId = $collection.id # Get ID from found collection
     Write-Host "Found collection '$CollectionName' with ID: $CollectionId" -ForegroundColor Green
 }
-else {
-    $collections = Get-Collections -DatabasePath $DatabasePath
-    $collection = $collections | Where-Object { $_.id -eq $CollectionId }
-    $CollectionName = $collection.name
+elseif ($CollectionId) {
+    # If only ID is provided, get the collection name for reporting
+    # Pass InstallPath to Get-Collection
+    $collection = Get-Collection -Id $CollectionId -DatabasePath $DatabasePath -InstallPath $InstallPath
+    if ($collection) {
+        $CollectionName = $collection.name
+        Write-Host "Using Collection ID: $CollectionId (Name: $CollectionName)" -ForegroundColor Green
+    } else {
+         Write-Error "Collection with ID '$CollectionId' not found."
+         exit 1
+    }
+} else {
+     Write-Error "Either -CollectionName or -CollectionId must be specified."
+     exit 1
 }
 
 
@@ -94,23 +100,13 @@ if (-not $IncludeDirty -and -not $IncludeDeleted -and -not $IncludeProcessed) {
 
 
 try {
-    # Get the connection to the database
-    $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+    # Get the connection to the database (pass InstallPath)
+    $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
     
-    # Find the collection by name
-    $collectionCommand = $connection.CreateCommand()
-    $collectionCommand.CommandText = "SELECT id FROM collections WHERE name = @Name"
-    $null = $collectionCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@Name", $CollectionName)))
-    
-    $collectionId = $collectionCommand.ExecuteScalar()
-    
-    if (-not $collectionId) {
-        Write-Error "Collection '$CollectionName' not found."
-        exit 1
-    }
+    # Collection ID is already determined above, no need to query again by name
     
     # Build the WHERE clause dynamically based on parameters
-    $whereConditions = @("collection_id = @CollectionId")
+    $whereConditions = @("collection_id = @CollectionIdParam") # Use a different parameter name to avoid conflict
     
     # Handle Dirty/Processed flags
     if ($IncludeDirty -and $IncludeProcessed) {
@@ -137,7 +133,7 @@ try {
     # Create command to count files matching criteria
     $countCommand = $connection.CreateCommand()
     $countCommand.CommandText = "SELECT COUNT(*) FROM files WHERE $whereClause"
-    $null = $countCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $collectionId)))
+    $null = $countCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionIdParam", $CollectionId))) # Use the determined ID
     $filesCount = $countCommand.ExecuteScalar()
     
     if ($filesCount -eq 0) {
@@ -155,7 +151,7 @@ try {
     # Query for files matching criteria
     $selectCommand = $connection.CreateCommand()
     $selectCommand.CommandText = "SELECT id, FilePath, OriginalUrl, LastModified, Dirty, Deleted FROM files WHERE $whereClause"
-    $null = $selectCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $collectionId)))
+    $null = $selectCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionIdParam", $CollectionId))) # Use the determined ID
     $reader = $selectCommand.ExecuteReader()
     
     # Process files
@@ -174,8 +170,8 @@ try {
             LastModified = $lastModified
             IsDirty = $isDirty
             IsDeleted = $isDeleted
-            Collection = $CollectionName
-            CollectionId = $collectionId
+            Collection = $CollectionName # Use the determined name
+            CollectionId = $CollectionId # Use the determined ID
         }
         
         $results += $fileInfo

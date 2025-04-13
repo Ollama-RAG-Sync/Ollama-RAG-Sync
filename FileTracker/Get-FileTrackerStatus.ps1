@@ -18,19 +18,13 @@ param (
 Import-Module -Name "$PSScriptRoot\FileTracker-Shared.psm1" -Force
 Import-Module -Name "$PSScriptRoot\Database-Shared.psm1" -Force
 
-$sqliteAssemblyPath = "$InstallPath\Microsoft.Data.Sqlite.dll"
-$sqliteAssemblyPath2 = "$InstallPath\SQLitePCLRaw.core.dll"
-$sqliteAssemblyPath3 = "$InstallPath\SQLitePCLRaw.provider.e_sqlite3.dll"
+# Determine Database Path
+$DatabasePath = Get-DefaultDatabasePath -InstallPath $InstallPath
+Write-Verbose "Using database path: $DatabasePath"
 
-# Load SQLite assembly
-Add-Type -Path $sqliteAssemblyPath -Verbose
-Add-Type -Path $sqliteAssemblyPath2 -Verbose
-Add-Type -Path $sqliteAssemblyPath3 -Verbose
-
-$DatabasePath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
 try {
-    # Get all collections
-    $collections = Get-Collections -DatabasePath $DatabasePath
+    # Get all collections (pass InstallPath)
+    $collections = Get-Collections -DatabasePath $DatabasePath -InstallPath $InstallPath
     
     # Initialize status variables
     $totalFiles = 0
@@ -42,14 +36,14 @@ try {
     
     # Process each collection
     foreach ($collection in $collections) {
-        # Get files in this collection
-        $allFiles = Get-CollectionFiles -CollectionId $collection.id -DatabasePath $DatabasePath
-        $dirty = Get-CollectionFiles -CollectionId $collection.id -DirtyOnly -DatabasePath $DatabasePath
-        $processed = Get-CollectionFiles -CollectionId $collection.id -ProcessedOnly -DatabasePath $DatabasePath
-        $deleted = Get-CollectionFiles -CollectionId $collection.id -DeletedOnly -DatabasePath $DatabasePath
+        # Get files in this collection (pass InstallPath)
+        $allFiles = Get-CollectionFiles -CollectionId $collection.id -DatabasePath $DatabasePath -InstallPath $InstallPath
+        $dirty = Get-CollectionFiles -CollectionId $collection.id -DirtyOnly -DatabasePath $DatabasePath -InstallPath $InstallPath
+        $processed = Get-CollectionFiles -CollectionId $collection.id -ProcessedOnly -DatabasePath $DatabasePath -InstallPath $InstallPath
+        $deleted = Get-CollectionFiles -CollectionId $collection.id -DeletedOnly -DatabasePath $DatabasePath -InstallPath $InstallPath
         
         # Update counters
-        $totalFiles += $allFiles.Count
+        $totalFiles += $allFiles.Count # Assuming $allFiles is an array or collection
         $dirtyFiles += $dirty.Count
         $processedFiles += $processed.Count
         $deletedFiles += $deleted.Count
@@ -137,4 +131,3 @@ catch {
         }
     }
 }
-

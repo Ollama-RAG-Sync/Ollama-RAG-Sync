@@ -1,6 +1,65 @@
 # Database-Shared.psm1
 # This module contains shared functions for interacting with the FileTracker database
 
+# State variable to track if SQLite environment is initialized
+$script:SqliteEnvironmentInitialized = $false
+
+function Initialize-SqliteEnvironment {
+    <#
+    .SYNOPSIS
+        Loads the required SQLite assemblies.
+    .DESCRIPTION
+        This function loads the necessary Microsoft.Data.Sqlite and SQLitePCLRaw assemblies.
+        It ensures assemblies are loaded only once per session.
+    .PARAMETER InstallPath
+        The installation path where the SQLite DLLs are located.
+    #>
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$InstallPath
+    )
+
+    if ($script:SqliteEnvironmentInitialized) {
+        Write-Verbose "SQLite environment already initialized."
+        return $true
+    }
+
+    # Check if SQLite assemblies exist
+    $sqliteAssemblyPath = Join-Path -Path $InstallPath -ChildPath "Microsoft.Data.Sqlite.dll"
+    $sqliteAssemblyPath2 = Join-Path -Path $InstallPath -ChildPath "SQLitePCLRaw.core.dll"
+    $sqliteAssemblyPath3 = Join-Path -Path $InstallPath -ChildPath "SQLitePCLRaw.provider.e_sqlite3.dll"
+    $nativeLibPath = Join-Path -Path $InstallPath -ChildPath "e_sqlite3.dll" # Native library
+
+    if (-not (Test-Path $sqliteAssemblyPath) -or 
+        -not (Test-Path $sqliteAssemblyPath2) -or 
+        -not (Test-Path $sqliteAssemblyPath3) -or
+        -not (Test-Path $nativeLibPath)) {
+        Write-Error "One or more required SQLite assemblies not found in $InstallPath. Please run Install-FileTracker.ps1."
+        return $false
+    }
+
+    try {
+        Write-Verbose "Loading SQLite assemblies from $InstallPath..."
+        Add-Type -Path $sqliteAssemblyPath
+        Add-Type -Path $sqliteAssemblyPath2
+        Add-Type -Path $sqliteAssemblyPath3
+        
+        # Set SQLitePCLRaw provider
+        [SQLitePCL.raw]::SetProvider([SQLitePCL.SQLite3Provider_e_sqlite3]::new())
+        Write-Verbose "SQLitePCLRaw provider set."
+
+        $script:SqliteEnvironmentInitialized = $true
+        Write-Verbose "SQLite environment initialized successfully."
+        return $true
+    }
+    catch {
+        Write-Error "Error loading SQLite assemblies: $_"
+        # Reset flag on failure
+        $script:SqliteEnvironmentInitialized = $false 
+        return $false
+    }
+}
+
 function Get-DatabaseConnection {
     <#
     .SYNOPSIS
@@ -12,18 +71,20 @@ function Get-DatabaseConnection {
     #>
     param (
         [Parameter(Mandatory = $true)]
-        [string]$DatabasePath
+        [string]$DatabasePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InstallPath # Required to find assemblies if not initialized
     )
 
-    try {
-        # Set SQLitePCLRaw provider if not already set
-        try {
-            [SQLitePCL.raw]::SetProvider([SQLitePCL.SQLite3Provider_e_sqlite3]::new())
+    # Ensure SQLite environment is ready
+    if (-not $script:SqliteEnvironmentInitialized) {
+        if (-not (Initialize-SqliteEnvironment -InstallPath $InstallPath)) {
+            throw "Failed to initialize SQLite environment. Cannot connect to database."
         }
-        catch {
-            # Provider might already be set, which is fine
-        }
+    }
 
+    try {
         # Create connection to SQLite database
         $connectionString = "Data Source=$DatabasePath"
         $connection = New-Object Microsoft.Data.Sqlite.SqliteConnection($connectionString)
@@ -59,20 +120,7 @@ function Get-CollectionDatabasePath {
         Returns the path for a specific collection's database file.
     .DESCRIPTION
         This function returns the path for a specific collection's database file in the dedicated folder.
-    .PARAMETER CollectionName
-        The name of the collection.
-    #>
-    param (
-        [Parameter(Mandatory = $true)]
-        [string]$InstallPath,
-
-        [Parameter(Mandatory = $true)]
-        [string]$CollectionName
-    )
-    
-    # Create the dedicated FileTracker database directory in the user's AppData folder
-    $fileTrackerDir = Join-Path -Path $InstallPath -ChildPath "FileTracker"
-    return Join-Path -Path $fileTrackerDir -ChildPath "Collection_$safeCollectionName.db"
+    # This function seems incorrect as there's only one central DB. Removing it.
 }
 
 # Collection management functions
@@ -87,13 +135,15 @@ function Get-Collections {
         The path to the SQLite database file.
     #>
     param (
-        [Parameter(Mandatory = $false)]
-        [string]$DatabasePath
+        [Parameter(Mandatory = $true)]
+        [string]$DatabasePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InstallPath # Required for Get-DatabaseConnection
     )
     
     try {
-
-        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
         
         $command = $connection.CreateCommand()
         $command.CommandText = "SELECT id, name, description, source_folder, include_extensions, exclude_folders, created_at, updated_at FROM collections ORDER BY name"
@@ -148,12 +198,15 @@ function Get-Collection {
         [Parameter(Mandatory = $true)]
         [int]$Id,
         
-        [Parameter(Mandatory = $false)]
-        [string]$DatabasePath
+        [Parameter(Mandatory = $true)]
+        [string]$DatabasePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InstallPath # Required for Get-DatabaseConnection
     )
     
     try {
-        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
         
         $command = $connection.CreateCommand()
         $command.CommandText = "SELECT id, name, description, source_folder, include_extensions, exclude_folders, created_at, updated_at FROM collections WHERE id = @Id"
@@ -223,13 +276,16 @@ function New-Collection {
         [string]$SourceFolder,
         
         [Parameter(Mandatory = $false)]
-        [string]$IncludeExtensions,
+        [string]$IncludeExtensions, # Stored as comma-separated string
         
         [Parameter(Mandatory = $false)]
-        [string]$ExcludeFolders,
+        [string]$ExcludeFolders, # Stored as comma-separated string
         
+        [Parameter(Mandatory = $true)]
+        [string]$InstallPath, # Required for Get-DatabaseConnection and path determination
+
         [Parameter(Mandatory = $false)]
-        [string]$InstallPath
+        [string]$DatabasePath # Optional override for DB path
     )
     
     try {
@@ -239,9 +295,12 @@ function New-Collection {
             return $null
         }
 
-        $DatabasePath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
+        # Determine Database Path
+        if (-not $DatabasePath) {
+            $DatabasePath = Get-DefaultDatabasePath -InstallPath $InstallPath
+        }
         
-        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
         
         # Check if a collection with this name already exists
         $checkCommand = $connection.CreateCommand()
@@ -343,10 +402,13 @@ function Update-Collection {
         [string]$IncludeExtensions,
         
         [Parameter(Mandatory = $false)]
-        [string]$ExcludeFolders,
+        [string]$ExcludeFolders, # Stored as comma-separated string
         
+        [Parameter(Mandatory = $true)]
+        [string]$InstallPath, # Required for Get-DatabaseConnection and path determination
+
         [Parameter(Mandatory = $false)]
-        [string]$DatabasePath 
+        [string]$DatabasePath # Optional override for DB path
     )
     
     try {
@@ -356,7 +418,12 @@ function Update-Collection {
             return $false
         }
         
-        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+        # Determine Database Path
+        if (-not $DatabasePath) {
+            $DatabasePath = Get-DefaultDatabasePath -InstallPath $InstallPath
+        }
+
+        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
         
         # Check if the collection exists
         $checkCommand = $connection.CreateCommand()
@@ -484,12 +551,20 @@ function Remove-Collection {
         [Parameter(Mandatory = $true)]
         [int]$Id,
         
+        [Parameter(Mandatory = $true)]
+        [string]$InstallPath, # Required for Get-DatabaseConnection and path determination
+
         [Parameter(Mandatory = $false)]
-        [string]$DatabasePath
+        [string]$DatabasePath # Optional override for DB path
     )
     
     try {
-        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+        # Determine Database Path
+        if (-not $DatabasePath) {
+            $DatabasePath = Get-DefaultDatabasePath -InstallPath $InstallPath
+        }
+
+        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
         
         # Begin transaction
         $transaction = $connection.BeginTransaction()
@@ -561,12 +636,20 @@ function Get-CollectionFiles {
         [Parameter(Mandatory = $false)]
         [switch]$DeletedOnly,
         
+        [Parameter(Mandatory = $true)]
+        [string]$InstallPath, # Required for Get-DatabaseConnection and path determination
+
         [Parameter(Mandatory = $false)]
-        [string]$DatabasePath
+        [string]$DatabasePath # Optional override for DB path
     )
     
     try {
-        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+        # Determine Database Path
+        if (-not $DatabasePath) {
+            $DatabasePath = Get-DefaultDatabasePath -InstallPath $InstallPath
+        }
+
+        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
         
         # Build query based on parameters
         $query = "SELECT id, FilePath, OriginalUrl, LastModified, Dirty, Deleted FROM files WHERE collection_id = @CollectionId"
@@ -655,12 +738,20 @@ function Add-FileToCollection {
         [Parameter(Mandatory = $false)]
         [bool]$Dirty = $true,
         
+        [Parameter(Mandatory = $true)]
+        [string]$InstallPath, # Required for Get-DatabaseConnection and path determination
+
         [Parameter(Mandatory = $false)]
-        [string]$DatabasePath
+        [string]$DatabasePath # Optional override for DB path
     )
     
     try {
-        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+         # Determine Database Path
+        if (-not $DatabasePath) {
+            $DatabasePath = Get-DefaultDatabasePath -InstallPath $InstallPath
+        }
+
+        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
         
         # Check if the collection exists
         $checkCollectionCommand = $connection.CreateCommand()
@@ -675,7 +766,7 @@ function Add-FileToCollection {
         }
         
         # Check if the file exists
-        if (-not (Test-Path -Path $FilePath -PathType Leaf)) {
+        if (-not (Test-Path -LiteralPath $FilePath -PathType Leaf)) {
             Write-Error "File not found at path: $FilePath"
             return $null
         }
@@ -702,7 +793,7 @@ function Add-FileToCollection {
             
             $updateCommand.CommandText += " WHERE id = @Id"
             $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@Id", $existingFileId)))
-            $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@LastModified", (Get-Item $FilePath).LastWriteTime.ToString("o"))))
+            $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@LastModified", (Get-Item -LiteralPath $FilePath).LastWriteTime.ToString("o"))))
             $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@Dirty", [int]$Dirty)))
             
             $updateCommand.ExecuteNonQuery()
@@ -711,7 +802,7 @@ function Add-FileToCollection {
                 id = $existingFileId
                 filePath = $FilePath
                 originalUrl = $OriginalUrl
-                lastModified = (Get-Item $FilePath).LastWriteTime.ToString("o")
+                lastModified = (Get-Item -LiteralPath $FilePath).LastWriteTime.ToString("o")
                 dirty = $Dirty
                 deleted = $false
                 collection_id = $CollectionId
@@ -724,7 +815,7 @@ function Add-FileToCollection {
             $insertCommand.CommandText = "INSERT INTO files (FilePath, OriginalUrl, LastModified, Dirty, Deleted, collection_id) VALUES (@FilePath, @OriginalUrl, @LastModified, @Dirty, 0, @CollectionId); SELECT last_insert_rowid();"
             $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FilePath", $FilePath)))
             $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@OriginalUrl", [DBNull]::Value)))
-            $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@LastModified", (Get-Item $FilePath).LastWriteTime.ToString("o"))))
+            $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@LastModified", (Get-Item -LiteralPath $FilePath).LastWriteTime.ToString("o"))))
             $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@Dirty", [int]$Dirty)))
             $insertCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $CollectionId)))
             
@@ -738,7 +829,7 @@ function Add-FileToCollection {
                 id = $fileId
                 filePath = $FilePath
                 originalUrl = $OriginalUrl
-                lastModified = (Get-Item $FilePath).LastWriteTime.ToString("o")
+                lastModified = (Get-Item -LiteralPath $FilePath).LastWriteTime.ToString("o")
                 dirty = $Dirty
                 deleted = $false
                 collection_id = $CollectionId
@@ -747,7 +838,7 @@ function Add-FileToCollection {
         }
     }
     catch {
-        Write-Error "Error adding file to collection: $_"
+        Write-Error "Error adding file to collection: $($_.ScriptStackTrace)"
         return $null
     }
     finally {
@@ -773,12 +864,20 @@ function Remove-FileFromCollection {
         [Parameter(Mandatory = $true)]
         [int]$FileId,
         
+        [Parameter(Mandatory = $true)]
+        [string]$InstallPath, # Required for Get-DatabaseConnection and path determination
+
         [Parameter(Mandatory = $false)]
-        [string]$DatabasePath
+        [string]$DatabasePath # Optional override for DB path
     )
     
     try {
-        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+        # Determine Database Path
+        if (-not $DatabasePath) {
+            $DatabasePath = Get-DefaultDatabasePath -InstallPath $InstallPath
+        }
+
+        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
         
         # Delete the file
         $deleteCommand = $connection.CreateCommand()
@@ -802,9 +901,10 @@ function Remove-FileFromCollection {
 }
 
 # Export functions to make them available to other scripts
-Export-ModuleMember -Function Get-DatabaseConnection, 
+Export-ModuleMember -Function Initialize-SqliteEnvironment,
+                              Get-DatabaseConnection, 
                               Get-DefaultDatabasePath,
-                              Get-CollectionDatabasePath,
+                              # Get-CollectionDatabasePath, # Removed
                               Get-Collections,
                               Get-Collection,
                               New-Collection,

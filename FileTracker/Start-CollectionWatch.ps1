@@ -74,22 +74,18 @@ param (
 
 # Import the shared database module
 $scriptParentPath = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
-$databaseSharedPath = Join-Path -Path $scriptParentPath -ChildPath "Database-Shared.psm1"
-Import-Module -Name $databaseSharedPath -Force
-$sqliteAssemblyPath = "$InstallPath\Microsoft.Data.Sqlite.dll"
-$sqliteAssemblyPath2 = "$InstallPath\SQLitePCLRaw.core.dll"
-$sqliteAssemblyPath3 = "$InstallPath\SQLitePCLRaw.provider.e_sqlite3.dll"
+$databaseSharedModulePath = Join-Path -Path $scriptParentPath -ChildPath "Database-Shared.psm1"
+Import-Module -Name $databaseSharedModulePath -Force
 
-# Load SQLite assembly
-Add-Type -Path $sqliteAssemblyPath
-Add-Type -Path $sqliteAssemblyPath2
-Add-Type -Path $sqliteAssemblyPath3
-
-$DatabasePath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
+# Determine Database Path
+# Note: This script doesn't accept $DatabasePath override, it relies solely on $InstallPath
+$DatabasePath = Get-DefaultDatabasePath -InstallPath $InstallPath
+Write-Verbose "Using database path: $DatabasePath"
 
 # Get collection by name if needed
 if ($CollectionName) {
-    $collections = Get-Collections -DatabasePath $DatabasePath
+    # Pass InstallPath
+    $collections = Get-Collections -DatabasePath $DatabasePath -InstallPath $InstallPath
     $collection = $collections | Where-Object { $_.name -eq $CollectionName }
     
     if (-not $collection) {
@@ -97,14 +93,20 @@ if ($CollectionName) {
         exit 1
     }
     
-    $CollectionId = $collection.id
+    $CollectionId = $collection.id # Get ID from found collection
     Write-Host "Found collection '$CollectionName' with ID: $CollectionId" -ForegroundColor Green
+} 
+elseif (-not $CollectionId) {
+    # If neither name nor ID is provided
+     Write-Error "Either -CollectionName or -CollectionId must be specified."
+     exit 1
 }
+# else: CollectionId was provided directly
 
-# Get collection details
-$collection = Get-Collection -Id $CollectionId -DatabasePath $DatabasePath
+# Get collection details (pass InstallPath)
+$collection = Get-Collection -Id $CollectionId -DatabasePath $DatabasePath -InstallPath $InstallPath
 if (-not $collection) {
-    Write-Error "Collection with ID $CollectionId not found."
+    Write-Error "Collection with ID $CollectionId not found." # Use the determined/provided ID
     exit 1
 }
 
@@ -112,11 +114,13 @@ if (-not $collection) {
 function Get-WatchSettings {
     param (
         [int]$CollectionId,
-        [string]$DatabasePath
+        [string]$DatabasePath,
+        [string]$InstallPath # Added InstallPath
     )
     
     try {
-        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+        # Pass InstallPath
+        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
         
         # Generate a unique key for this collection's watch settings
         $watchKey = "collection_${CollectionId}_watch"
@@ -147,11 +151,13 @@ function Save-WatchSettings {
     param (
         [int]$CollectionId,
         [PSCustomObject]$Settings,
-        [string]$DatabasePath
+        [string]$DatabasePath,
+        [string]$InstallPath # Added InstallPath
     )
     
     try {
-        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath
+        # Pass InstallPath
+        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
         
         # Generate a unique key for this collection's watch settings
         $watchKey = "collection_${CollectionId}_watch"
@@ -190,10 +196,12 @@ function Start-WatchJob {
         [int]$ProcessInterval,
         [string[]]$OmitFolders,
         [string]$FileFilter = "*.*",
-        [string]$DatabasePath
+        # DatabasePath is not needed here, Watch-FileTracker determines its own
+        [string]$InstallPath # Added InstallPath
     )
     
     # Get the path to the Watch-FileTracker.ps1 script
+    $scriptParentPath = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent # Ensure scriptParentPath is defined
     $watchScriptPath = Join-Path -Path $scriptParentPath -ChildPath "Watch-FileTracker.ps1"
     
     # Build watch parameters
@@ -206,6 +214,8 @@ function Start-WatchJob {
         IncludeSubdirectories = $IncludeSubdirectories
         ProcessInterval = $ProcessInterval
         OmitFolders = $OmitFolders
+        InstallPath = $InstallPath # Pass InstallPath
+        CollectionId = $CollectionId # Pass CollectionId
     }
     
     if ($FileFilter -ne "*.*") {
@@ -243,8 +253,8 @@ try {
     $watchJob = Get-Job -Name "Watch_Collection_$CollectionId" -ErrorAction SilentlyContinue
     $isWatching = $null -ne $watchJob
     
-    # Get existing watch settings if available
-    $existingSettings = Get-WatchSettings -CollectionId $CollectionId -DatabasePath $DatabasePath
+    # Get existing watch settings if available (pass InstallPath)
+    $existingSettings = Get-WatchSettings -CollectionId $CollectionId -DatabasePath $DatabasePath -InstallPath $InstallPath
     
     # Determine FileFilter based on collection's include_extensions
     $fileFilter = "*.*"
@@ -262,13 +272,13 @@ try {
                 $stopped = Stop-WatchJob -CollectionId $CollectionId
                 
                 if ($stopped) {
-                    # Update settings in database to show watch is disabled
+                    # Update settings in database to show watch is disabled (pass InstallPath)
                     if ($existingSettings) {
                         $existingSettings.enabled = $false
-                        Save-WatchSettings -CollectionId $CollectionId -Settings $existingSettings -DatabasePath $DatabasePath
+                        Save-WatchSettings -CollectionId $CollectionId -Settings $existingSettings -DatabasePath $DatabasePath -InstallPath $InstallPath
                     }
                     
-                    Write-Host "File watching stopped for collection '$($collection.name)'." -ForegroundColor Green
+                    Write-Host "File watching stopped for collection '$($collection.name)' (ID: $CollectionId)." -ForegroundColor Green
                 }
                 else {
                     Write-Warning "Failed to stop watch job for collection."
@@ -310,9 +320,8 @@ try {
                 processInterval = $ProcessInterval
                 omitFolders = $OmitFolders
             }
-
-            # Save settings to database
-            $saved = Save-WatchSettings -CollectionId $CollectionId -Settings $watchSettings -DatabasePath $DatabasePath
+            # Save settings to database (pass InstallPath)
+            $saved = Save-WatchSettings -CollectionId $CollectionId -Settings ([PSCustomObject]$watchSettings) -DatabasePath $DatabasePath -InstallPath $InstallPath
             
             if (-not $saved) {
                 Write-Error "Failed to save watch settings to database."
@@ -332,9 +341,10 @@ try {
                                  -ProcessInterval $watchSettings.processInterval `
                                  -OmitFolders $watchSettings.omitFolders `
                                  -FileFilter $fileFilter `
-                                 -DatabasePath $DatabasePath
+                                 # DatabasePath not passed here
+                                 -InstallPath $InstallPath # Pass InstallPath to Start-WatchJob
             
-            Write-Host "File watcher job started with ID: $($job.Id)" -ForegroundColor Green
+            Write-Host "File watcher job started with ID: $($job.Id) for Collection ID: $CollectionId" -ForegroundColor Green
             Write-Host "Monitoring for file changes: " -NoNewline
             
             $watchTypes = @()
