@@ -4,57 +4,27 @@
 
 .DESCRIPTION
     This script initializes a complete RAG environment by:
-    1. Creating a .ai subfolder in the specified directory
     2. Setting up a SQLite database to track file modifications
     3. Initializing a ChromaDB vector database for embeddings
     4. Starting a file watcher to monitor changes in the directory
 
-.PARAMETER DirectoryPath
-    The path to the directory to monitor and set up RAG for.
-    
 .PARAMETER EmbeddingModel
     The name of the embedding model to use (default: "mxbai-embed-large:latest").
 
 .PARAMETER OllamaUrl
     The URL of the Ollama API (default: "http://localhost:11434").
 
-.PARAMETER FileFilter
-    The filter for files to monitor (default: "*.*").
-
-.PARAMETER IncludeSubdirectories
-    Whether to include subdirectories when monitoring files (default: true).
-
-.PARAMETER ProcessExistingFiles
-    Whether to process existing files in the directory (default: true).
-
-.EXAMPLE
-    .\Setup-RAG.ps1 -DirectoryPath "D:\Documents"
-
-.EXAMPLE
-    .\Setup-RAG.ps1 -DirectoryPath "D:\Documents" -EmbeddingModel "llama3" -OllamaUrl "http://localhost:11434" -IncludeSubdirectories $false
 #>
 
 param (
     [Parameter(Mandatory = $true)]
     [string]$InstallPath,
 
-    [Parameter(Mandatory = $true)]
-    [string]$DirectoryPath,
-    
     [Parameter(Mandatory = $false)]
     [string]$EmbeddingModel = "mxbai-embed-large:latest",
     
     [Parameter(Mandatory = $false)]
-    [string]$OllamaUrl = "http://localhost:11434",
-    
-    [Parameter(Mandatory = $false)]
-    [string]$FileFilter = "*.*",
-    
-    [Parameter(Mandatory = $false)]
-    [bool]$IncludeSubdirectories = $true,
-    
-    [Parameter(Mandatory = $false)]
-    [bool]$ProcessExistingFiles = $true
+    [string]$OllamaUrl = "http://localhost:11434"   
 )
 
 # Function to log messages
@@ -116,6 +86,7 @@ function Ensure-Package {
     }
 }
 
+Write-Log "Installing python packages..." -Level "INFO"
 Ensure-Package "chromadb"
 Ensure-Package "requests"
 Ensure-Package "numpy"
@@ -139,34 +110,10 @@ catch {
     exit 1
 }
 
-# Initialize file tracker database
-Write-Log "Initializing file tracker database at '$fileTrackerDbPath'..." -Level "INFO"
-try {
-    $initializeScript = Join-Path -Path $scriptDirectory -ChildPath "FileTracker\Initialize-FileTracker.ps1"
-    & $initializeScript -FolderPath $DirectoryPath -DatabasePath $fileTrackerDbPath -InstallPath $InstallPath
-    
-    if (-not (Test-Path -Path $fileTrackerDbPath)) {
-        Write-Log "File tracker database was not created successfully" -Level "ERROR"
-        exit 1
-    }
-    
-    Write-Log "File tracker database initialized successfully" -Level "INFO"
-}
-catch {
-    Write-Log "Error initializing file tracker database: $_" -Level "ERROR"
-    exit 1
-}
-
 # Display summary and next steps
 Write-Log "RAG environment setup complete!" -Level "INFO"
 Write-Log "Summary:" -Level "INFO"
-Write-Log "- Directory being monitored: $DirectoryPath" -Level "INFO"
 Write-Log "- File tracker database: $fileTrackerDbPath" -Level "INFO"
 Write-Log "- Vector database: $vectorDbPath" -Level "INFO"
 Write-Log "- Embedding model: $EmbeddingModel" -Level "INFO"
 Write-Log "- Ollama URL: $OllamaUrl" -Level "INFO"
-
-Write-Log "`nNext steps:" -Level "INFO"
-Write-Log "1. Use Start-RAG.ps1 to begin processing files and updating the vector database" -Level "INFO"
-Write-Log "2. Use Chat-RAG.ps1 to interact with your documents using RAG" -Level "INFO"
-Write-Log "`nExample: .\Start-RAG.ps1 -InstallPath '$InstallPath' -DirectoryPath '$DirectoryPath'" -Level "INFO"

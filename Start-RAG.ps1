@@ -132,7 +132,6 @@ function Write-Log {
 }
 
 $fileTrackerDbPath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
-$chromaDbPath = Join-Path -Path $InstallPath -ChildPath "Chroma.db"
 # Get script directory for accessing other scripts
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 
