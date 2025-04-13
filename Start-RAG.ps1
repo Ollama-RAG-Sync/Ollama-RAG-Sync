@@ -209,7 +209,7 @@ catch {
 Write-Log "Starting Processor REST API..." -Level "INFO"
 try {
     # Start Processor API service
-    $processorScript = Join-Path -Path $scriptDirectory -ChildPath "Processor\Start-Processor.ps1"
+    $processorScript = Join-Path -Path $scriptDirectory -ChildPath "Processor\Start-ProcessorAPI.ps1"
     
     # Verify script exists
     if (-not (Test-Path -Path $processorScript)) {

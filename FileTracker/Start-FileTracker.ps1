@@ -34,7 +34,10 @@ function Write-Log {
         [string]$ForegroundColor = "Green", # Default to Green for Pode logs
         
         [Parameter(Mandatory=$false)]
-        [string]$Level = "INFO"
+        [string]$Level = "INFO",
+        
+        [Parameter(Mandatory=$false)]
+        [string]$LogFilePath = $logFilePath # Use the log file path from the parent scope
     )
     
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -52,7 +55,7 @@ function Write-Log {
     }
     
     # Write to log file
-    Add-Content -Path $logFilePath -Value $logMessage
+    Add-Content -Path $LogFilePath -Value $logMessage
 }
 
 # Compute DatabasePath from InstallationPath
@@ -84,8 +87,8 @@ try {
 
     Start-PodeServer { 
         # Assign $using variables to local scope at the start of the server block
-        $localInstallPath = $using:InstallPath
-        $localDatabasePath = $using:DatabasePath
+        $localInstallPath = $InstallPath
+        $localDatabasePath = $DatabasePath
         
         # Pode logging setup
         New-PodeLoggingMethod -Terminal | Enable-PodeErrorLogging # Example, adjust as needed
@@ -120,7 +123,7 @@ try {
         Add-PodeRoute -Method Get -Path "$ApiPath/collections" -ScriptBlock {
             try {
                 # Use local variables
-                $collectionsResult = Get-Collections -DatabasePath $localDatabasePath -InstallPath $localInstallPath 
+                $collectionsResult = Get-Collections -DatabasePath $using:localDatabasePath -InstallPath $using:localInstallPath 
                 $result = @{
                     success = $true
                     collections = $collectionsResult
@@ -248,7 +251,7 @@ try {
                 }
                 Write-PodeJsonResponse -Value $result
             } catch {
-                Write-Log "Error in DELETE /collections/$($WebEvent.Parameters['collectionId']): $_" -Level "ERROR"
+                Write-Log "Error in DELETE /collections/$($WebEvent.Parameters['collectionId']) : $_" -Level "ERROR"
                 Set-PodeResponseStatus -Code 500
                 Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
@@ -274,7 +277,7 @@ try {
                          $settingsJson = $cmd.ExecuteScalar()
                          if ($settingsJson) { $watchSettings = ConvertFrom-Json $settingsJson }
                          $conn.Close()
-                    } catch { Write-Log "Could not read watch settings for collection $collectionId: $_" -Level "WARNING" }
+                    } catch { Write-Log "Could not read watch settings for collection $collectionId : $_" -Level "WARNING" }
 
                     $watchStatus = $false
                     $watchJob = Get-Job -Name "Watch_Collection_$collectionId" -ErrorAction SilentlyContinue
@@ -339,7 +342,7 @@ try {
                          $cmd.ExecuteNonQuery()
                          $conn.Close()
                          Write-Log "Saved watch settings for collection $collectionId"
-                    } catch { Write-Log "Failed to save watch settings for collection $collectionId: $_" -Level "ERROR"; throw }
+                    } catch { Write-Log "Failed to save watch settings for collection $collectionId : $_" -Level "ERROR"; throw }
 
 
                     # Prepare params for Start-Job -> Watch-FileTracker.ps1
@@ -393,7 +396,7 @@ try {
                              $cmd.ExecuteNonQuery()
                              $conn.Close()
                              Write-Log "Updated watch settings to disabled for collection $collectionId"
-                        } catch { Write-Log "Failed to update watch settings to disabled for collection $collectionId: $_" -Level "ERROR" }
+                        } catch { Write-Log "Failed to update watch settings to disabled for collection $collectionId : $_" -Level "ERROR" }
 
                         $result = @{ success = $true; message = "File watching stopped"; collection_id = $collectionId }
                     } else {
@@ -557,7 +560,7 @@ try {
                         $conn.Close()
                         $fileFound = ($null -ne $filePathToUpdate)
                     } catch {
-                        Write-Log "Error fetching file path for ID $fileId in collection $collectionId: $_" -Level "ERROR"
+                        Write-Log "Error fetching file path for ID $fileId in collection $collectionId : $_" -Level "ERROR"
                         Set-PodeResponseStatus -Code 500; Write-PodeJsonResponse -Value @{ success = $false; error = "Internal server error checking file existence" }; return
                     }
 
@@ -592,11 +595,11 @@ try {
             Write-PodeJsonResponse -Value @{ status = "OK" } -StatusCode 200
         }
         # GET /api/status
-        Add-PodeRoute -Method Get -Path "$ApiPath/status" -ScriptBlock {
+        Add-PodeRoute -Method Get -Path "/status" -ScriptBlock {
             try {
                 # Call the function directly (it's imported)
                 # Use local variable
-                $status = Get-FileTrackerStatus -InstallPath $localInstallPath # Function is imported
+                $status = .\Get-FileTrackerStatus.ps1 -InstallPath $using:localInstallPath # Function is imported
                 $result = @{ success = $true; status = $status }
                 Write-PodeJsonResponse -Value $result
             } catch {
