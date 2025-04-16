@@ -47,7 +47,7 @@ try
         Write-VectorsLog -Message "Not all requirements are met. Please install missing dependencies." -Level "Error"
         return
     }
-    Initialize-VectorDatabase
+    
 
     # Add document to vector store
     $parameters = @{

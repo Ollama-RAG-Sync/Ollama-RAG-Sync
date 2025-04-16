@@ -317,7 +317,9 @@ try {
     Import-Module "$modulesPath\Vectors-Core.psm1" -Force -Verbose
     Import-Module "$modulesPath\Vectors-Database.psm1" -Force -Verbose
     Import-Module "$modulesPath\Vectors-Embeddings.psm1" -Force -Verbose
-   
+    
+    Initialize-VectorDatabase
+
     Write-Log "Starting Vectors API server using Pode..."
     Write-Log "ChromaDB Path: $ChromaDbPath"
     Write-Log "Ollama URL: $OllamaUrl"
@@ -480,8 +482,6 @@ try {
     Write-Log "Press Ctrl+C to stop the server."
 
 } catch {
-    Add-Content -Path "C:\log.txt" -Value "TEST6"
-
     Write-Log "Fatal error starting Pode server: $_" -Level "ERROR"
     Write-Log "$($_.ScriptStackTrace)" -Level "ERROR"
     exit 1
