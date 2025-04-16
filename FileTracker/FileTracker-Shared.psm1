@@ -43,7 +43,12 @@ function Update-FileProcessingStatus {
 
     # Determine new and old status values
     $newStatus = [int]$Dirty
-    $oldStatus = [int](-not $Dirty) # The status we are changing FROM
+    if ($Dirty) {
+        $oldStatus = 0 # Assuming 0 is the default status (not dirty)
+    } else {
+        $oldStatus = 1 # Assuming 1 is the dirty status
+    }
+
     $actionText = if ($Dirty) { "as dirty (to process)" } else { "as processed" }
     
     # Determine Database Path
@@ -96,7 +101,16 @@ function Update-FileProcessingStatus {
             
             # Check if the file already has the target status
             if ($currentStatus -eq $newStatus) {
-                $statusText = if ($Dirty) { "already marked as dirty (to process)" } else { "already marked as processed" }
+                Write-host $Dirty
+                Write-Host $newStatus
+                Write-Host $currentStatus
+                Write-Host $actionText
+                Write-Host $fileId
+                Write-Host $fileCollectionId
+                Write-Host $FilePath
+
+                
+                $statusText = if ($Dirty -eq 1) { "already marked as dirty (to process)" } else { "already marked as processed" }
                 Write-Host "File is $statusText`: $FilePath" -ForegroundColor Yellow
                 return $true
             }

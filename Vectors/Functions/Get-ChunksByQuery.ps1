@@ -27,15 +27,6 @@ param(
     [string]$EmbeddingModel
 )
 
-# Import required modules
-$scriptsPath = $PSScriptRoot
-$modulesPath = Join-Path -Path $scriptsPath -ChildPath "..\Modules"
-
-# Import modules
-Import-Module "$modulesPath\Vectors-Core.psm1" -Force
-Import-Module "$modulesPath\Vectors-Database.psm1" -Force
-Import-Module "$modulesPath\Vectors-Embeddings.psm1" -Force
-
 # Initialize configuration with overrides
 $configOverrides = @{}
 

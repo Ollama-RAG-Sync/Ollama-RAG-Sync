@@ -568,7 +568,7 @@ try {
 
                     # 2. Call Update-FileProcessingStatus using the SingleFile parameter set with the retrieved FilePath
                     # Use local variables
-                    $success = Update-FileProcessingStatus -FilePath $filePathToUpdate -Dirty $true -InstallPath "D:\install3" -DatabasePath "D:\install3\FileTracker.db"
+                    $success = Update-FileProcessingStatus -FilePath $filePathToUpdate -Dirty $data.dirty -DatabasePath $using:localDatabasePath -InstallPath $using:localInstallPath
                     if ($success) {
                         $result = @{ success = $true; message = "File status updated"; file_id = $fileId; file_path = $filePathToUpdate; collection_id = $collectionId; dirty = $data.dirty }
                         Write-PodeJsonResponse -Value $result

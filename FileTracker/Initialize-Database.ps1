@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS files (
     FilePath TEXT NOT NULL,
     OriginalUrl TEXT,
     LastModified TEXT NOT NULL,
-    Dirty INTEGER NOT NULL,
+    Dirty INTEGER DEFAULT 1,
     Deleted INTEGER DEFAULT 0,
     collection_id INTEGER NOT NULL,
     FOREIGN KEY (collection_id) REFERENCES collections(id),

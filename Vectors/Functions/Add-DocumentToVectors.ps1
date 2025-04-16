@@ -1,3 +1,4 @@
+
 param(
     [Parameter(Mandatory=$true)]
     [string]$FilePath,
@@ -20,19 +21,6 @@ param(
 
 try
 {
-    # Import required modules
-    $scriptsPath = $PSScriptRoot
-
-    Write-Host $scriptPath
-
-    $modulesPath = Join-Path -Path $scriptsPath -ChildPath "..\Modules"
-    # Import modules
-    Import-Module "$modulesPath\Vectors-Core.psm1" -Force 
-    Import-Module "$modulesPath\Vectors-Database.psm1" -Force 
-    Import-Module "$modulesPath\Vectors-Embeddings.psm1" -Force 
-    
-    
-
     # Initialize configuration with overrides
     $configOverrides = @{}
 
@@ -51,12 +39,6 @@ try
     if ($ChromaDbPath) {
         $configOverrides.ChromaDbPath = $ChromaDbPath
     }
-
-    Write-Host "4)ChromaDbPath: $ChromaDbPath"
-    Write-Host "3)OllamaUrl: $OllamaUrl"      
-    Write-Host "2)EmbeddingModel: $EmbeddingModel"
-    Write-Host "1)ChunkSize: $ChunkSize"
-    Write-Host "$configOverrides"
 
     Initialize-VectorsConfig -ConfigOverrides $configOverrides
 

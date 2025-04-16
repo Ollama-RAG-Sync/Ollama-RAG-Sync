@@ -261,7 +261,16 @@ function Search-Documents {
         [bool]$ReturnSourceContent = $false,
         
         [Parameter(Mandatory=$false)]
-        [hashtable]$WhereFilter = @{}
+        [hashtable]$WhereFilter = @{},
+
+        [Parameter(Mandatory=$true)]
+        [string]$ChromaDbPath,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$OllamaUrl,
+
+        [Parameter(Mandatory=$true)]
+        [string]$EmbeddingModel
     )
     
     try {
@@ -273,18 +282,18 @@ function Search-Documents {
             MaxResults = $MaxResults
             MinScore = $MinScore
             ReturnSourceContent = $ReturnSourceContent
-            ChromaDbPath = $using:chromaDbPath
-            OllamaUrl = $using:OllamaUrl
-            EmbeddingModel = $using:EmbeddingModel
+            ChromaDbPath = $ChromaDbPath
+            OllamaUrl = $OllamaUrl
+            EmbeddingModel = $EmbeddingModel
         }
         
-        if ($WhereFilter.Count -gt 0) { $params.WhereFilter = $WhereFilter }
+        if (($WhereFilter -ne $null) -and ($WhereFilter.Count -gt 0)) { $params.WhereFilter = $WhereFilter }
         
         # Call Get-DocumentsByQuery.ps1
-        $searchScript = Join-Path -Path $using:functionsPath -ChildPath "Get-DocumentsByQuery.ps1"
+        $searchScript = Join-Path -Path ".\Functions" -ChildPath "Get-DocumentsByQuery.ps1"
         $results = & $searchScript @params
-        
-        if ($results -and $results.Count -gt 0) {
+
+        if ($results -ne $null -and $results.Count -gt 0) {
             Write-Log "Found $($results.Count) matching documents for query: $Query"
             return @{ success = $true; results = $results; count = $results.Count; query = $Query }
         } else {
@@ -300,6 +309,14 @@ function Search-Documents {
 
 # --- Start Pode Server ---
 try {
+    $scriptsPath = $PSScriptRoot
+    $modulesPath = Join-Path -Path $scriptsPath -ChildPath "Modules"
+    $functionsPath = Join-Path -Path $scriptsPath -ChildPath "Functions"
+    
+    Write-Log "Importing modules..."
+    Import-Module "$modulesPath\Vectors-Core.psm1" -Force -Verbose
+    Import-Module "$modulesPath\Vectors-Database.psm1" -Force -Verbose
+    Import-Module "$modulesPath\Vectors-Embeddings.psm1" -Force -Verbose
    
     Write-Log "Starting Vectors API server using Pode..."
     Write-Log "ChromaDB Path: $ChromaDbPath"
@@ -312,6 +329,7 @@ try {
         $ollamaUrl = $OllamaUrl
         $embeddingModel = $EmbeddingModel
 
+        New-PodeLoggingMethod -Terminal | Enable-PodeErrorLogging -Levels Error, Warning, Informational, Verbose
 
         Add-PodeEndpoint -Address $ListenAddress -Port $Port -Protocol Http
         # Middleware & OpenAPI Setup
@@ -435,8 +453,7 @@ try {
              try {
                 $data = $WebEvent.Data
                 if ($null -eq $data -or [string]::IsNullOrEmpty($data.query)) {
-                    Set-PodeResponseStatus -Code 400
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Bad request: Required parameter missing: query" }; return
+                    Write-PodeJsonResponse -StatusCode 400 -Value @{ success = $false; error = "Bad request: Required parameter missing: query" }; return
                 }
                 
                 $query = $data.query
@@ -444,8 +461,7 @@ try {
                 $threshold = if ($null -ne $data.threshold) { $data.threshold } else { 0.0 }
                 $returnContent = if ($null -ne $data.return_content) { $data.return_content } else { $false }
                 $whereFilter = if ($null -ne $data.filter) { $data.filter } else { @{} }
-                
-                $result = Search-Documents -Query $query -MaxResults $maxResults -MinScore $threshold -ReturnSourceContent $returnContent -WhereFilter $whereFilter
+                $result = Search-Documents -ChromaDbPath $using:chromaDbPath -OllamaUrl $using:ollamaUrl -EmbeddingModel $using:embeddingModel -Query $query -MaxResults $maxResults -MinScore $threshold -ReturnSourceContent $returnContent -WhereFilter $whereFilter
                 
                 if ($result.success) {
                     Write-PodeJsonResponse -Value $result
@@ -453,7 +469,6 @@ try {
                     Write-PodeJsonResponse -StatusCode 500 -Value $result
                 }
             } catch {
-                 Add-Content -Path $logFilePath -Value $_
                  Write-Log "Error in POST /api/search/documents: $_" -Level "ERROR"
                  Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }

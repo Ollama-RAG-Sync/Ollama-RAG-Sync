@@ -3,13 +3,9 @@
 
 # Import the core module
 if (-not (Get-Module -Name "Vectors-Core")) {
-    Import-Module "$PSScriptRoot\Vectors-Core.psm1" -Force
+    Import-Module ".\Vectors-Core.psm1" -Force
 }
 
-if (-not (Get-Module -Name "Vectors-Embeddings")) {
-    Import-Module "$PSScriptRoot\Vectors-Embeddings.psm1" -Force
-
-}
 <#
 .SYNOPSIS
     Generates an embedding for a document
