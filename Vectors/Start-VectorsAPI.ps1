@@ -13,7 +13,7 @@ param (
     [int]$Port = 10001,
 
     [Parameter(Mandatory=$false)]
-    [string]$OllamaUrl = "http://localhost:11434",
+    [string]$OllamaUrl = "http://localhost:11434", # Ollama API URL
     
     [Parameter(Mandatory=$false)]
     [string]$EmbeddingModel = "mxbai-embed-large:latest",
@@ -50,7 +50,6 @@ param (
  $logFileName = "Vectors_$logDate.log"
  $logFilePath = Join-Path -Path $TempDir -ChildPath "$logFileName"
 
-Add-Content -Path "C:\log.txt" -Value "TEST4"
 function Write-Log {
     param (
         [Parameter(Mandatory=$true)]
@@ -73,7 +72,6 @@ function Write-Log {
     else {
         Write-Host $logMessage -ForegroundColor Green # Default to Green
     }
-    Add-Content -Path $logFilePath -Value $logMessage
 }
 
 # --- Core Logic Functions (Keep original functions, they are called by routes) ---
@@ -83,6 +81,15 @@ function Add-Document {
     param (
         [Parameter(Mandatory=$true)]
         [string]$FilePath,
+
+        [Parameter(Mandatory=$true)]
+        [string]$ChromaDbPath,
+
+        [Parameter(Mandatory=$true)]
+        [string]$OllamaUrl,
+
+        [Parameter(Mandatory=$true)]
+        [string]$EmbeddingModel,
 
         [Parameter(Mandatory=$false)]
         [int]$FileId = 0,
@@ -107,16 +114,24 @@ function Add-Document {
         }
         
         # Add optional parameters if provided and different from default
-        if ($ChunkSize -ne $using:DefaultChunkSize) { $params.ChunkSize = $ChunkSize }
-        if ($ChunkOverlap -ne $using:DefaultChunkOverlap) { $params.ChunkOverlap = $ChunkOverlap }
+        #if ($ChunkSize -ne $using:DefaultChunkSize) { $params.ChunkSize = $ChunkSize }
+        #if ($ChunkOverlap -ne $using:DefaultChunkOverlap) { $params.ChunkOverlap = $ChunkOverlap }
         
         # Pass global config
-        $params.ChromaDbPath = $using:chromaDbPath
-        $params.OllamaUrl = $using:OllamaUrl
-        $params.EmbeddingModel = $using:EmbeddingModel
+        $params.ChromaDbPath = $ChromaDbPath
+        $params.OllamaUrl = $OllamaUrl
+        $params.EmbeddingModel = $EmbeddingModel
+
+        $functionsPath = "Functions"
         
+        Write-Host  "Functions Path =  $functionsPath"
+        Write-Host  "ChromaDbPath =  $ChromaDbPath"
+        Write-Host  "OllamaUrl =  $OllamaUrl"
+        Write-Host  "EmbeddingModel = $EmbeddingModel"
+
         # Call Add-DocumentToVectors.ps1
-        $addDocumentScript = Join-Path -Path $using:functionsPath -ChildPath "Add-DocumentToVectors.ps1"
+        $addDocumentScript = Join-Path -Path $functionsPath -ChildPath "Add-DocumentToVectors.ps1"
+
         $result = & $addDocumentScript @params
         
         if ($result) {
@@ -128,7 +143,7 @@ function Add-Document {
         }
     }
     catch {
-        Write-Log "Error adding document to vectors: $_" -Level "ERROR" # Removed ScriptStackTrace for brevity
+        Write-Log "Error adding document to vectors: $_ $($_.ScriptStackTrace)" -Level "ERROR" # Removed ScriptStackTrace for brevity
         return @{ success = $false; error = $_.ToString(); filePath = $FilePath; fileId = $FileId }
     }
 }
@@ -149,13 +164,13 @@ function Remove-Document {
         # Set parameters for Remove-DocumentFromVectors.ps1
         $params = @{
             FilePath = $FilePath
-            ChromaDbPath = $using:ChromaDbPath
+            ChromaDbPath = $using:chromaDbPath
             OllamaUrl = $using:OllamaUrl
             EmbeddingModel = $using:EmbeddingModel
         }
         
         # Call Remove-DocumentFromVectors.ps1
-        $removeDocumentScript = Join-Path -Path $using:functionsPath -ChildPath "Remove-DocumentFromVectors.ps1"
+        $removeDocumentScript = Join-Path -Path $FunctionsPath -ChildPath "Remove-DocumentFromVectors.ps1"
         $result = & $removeDocumentScript @params
         
         if ($result) {
@@ -205,7 +220,7 @@ function Search-Chunks {
             QueryText = $Query
             MaxResults = $MaxResults
             MinScore = $MinScore
-            ChromaDbPath = $using:ChromaDbPath
+            ChromaDbPath = $using:chromaDbPath
             OllamaUrl = $using:OllamaUrl
             EmbeddingModel = $using:EmbeddingModel
         }
@@ -258,7 +273,7 @@ function Search-Documents {
             MaxResults = $MaxResults
             MinScore = $MinScore
             ReturnSourceContent = $ReturnSourceContent
-            ChromaDbPath = $using:ChromaDbPath
+            ChromaDbPath = $using:chromaDbPath
             OllamaUrl = $using:OllamaUrl
             EmbeddingModel = $using:EmbeddingModel
         }
@@ -292,6 +307,12 @@ try {
     Write-Log "Embedding model: $EmbeddingModel"
 
     Start-PodeServer -Threads 4 {
+
+        $chromaDbPath  = $ChromaDbPath
+        $ollamaUrl = $OllamaUrl
+        $embeddingModel = $EmbeddingModel
+
+
         Add-PodeEndpoint -Address $ListenAddress -Port $Port -Protocol Http
         # Middleware & OpenAPI Setup
         Enable-PodeOpenApi -Title "Vectors API" -Version "1.0.0" -Description "API for managing and querying vector embeddings" -ErrorAction Stop
@@ -317,7 +338,7 @@ try {
         Add-PodeRoute -Method Get -Path "/status" -ScriptBlock {
              Write-PodeJsonResponse -Value @{
                 status = "ok"
-                chromaDbPath = $using:ChromaDbPath
+                chromaDbPath = $using:chromaDbPath
                 ollamaUrl = $using:OllamaUrl
                 embeddingModel = $using:EmbeddingModel
                 defaultChunkSize = $using:DefaultChunkSize
@@ -329,8 +350,7 @@ try {
             try {
                 $data = $WebEvent.Data
                 if ($null -eq $data -or [string]::IsNullOrEmpty($data.filePath)) {
-                    Set-PodeResponseStatus -Code 400
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Bad request: Required parameter missing: filePath" }; return
+                    Write-PodeJsonResponse -StatusCode 400 -Value @{ success = $false; error = "Bad request: Required parameter missing: filePath" }; return
                 }
                 
                 $filePath = $data.filePath
@@ -338,8 +358,12 @@ try {
                 $chunkSize = if ($null -ne $data.chunkSize) { $data.chunkSize } else { $using:DefaultChunkSize }
                 $chunkOverlap = if ($null -ne $data.chunkOverlap) { $data.chunkOverlap } else { $using:DefaultChunkOverlap }
                 $contentType = if ($null -ne $data.contentType) { $data.contentType } else { "Text" }
-                
-                $result = Add-Document -FilePath $filePath -FileId $fileId -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -ContentType $contentType
+
+                $chromaDbPath  = $using:chromaDbPath
+                $ollamaUrl = $using:OllamaUrl
+                $embeddingModel = $using:EmbeddingModel
+
+                $result = Add-Document -ChromaDbPath $chromaDbPath -OllamaUrl $ollamaUrl -Embedding $embeddingModel -FilePath $filePath -FileId $fileId -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -ContentType $contentType
                 
                 if ($result.success) {
                     Write-PodeJsonResponse -Value $result
@@ -347,7 +371,6 @@ try {
                     Write-PodeJsonResponse -StatusCode 500 -Value $result
                 }
             } catch {
-                 Write-Log "Error in POST /documents: $_" -Level "ERROR"
                  Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
         }

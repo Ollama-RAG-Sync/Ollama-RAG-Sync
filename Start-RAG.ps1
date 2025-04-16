@@ -176,11 +176,11 @@ catch {
 Write-Log "Starting FileTracker subsystem..." -Level "INFO"
 try {
     # Start FileTracker API service
-    $fileTrackerScript = Join-Path -Path $scriptDirectory -ChildPath "FileTracker\Start-FileTracker.ps1"
+    $fileTrackerScript = Join-Path -Path $scriptDirectory -ChildPath "FileTracker\Start-FileTrackerAPI.ps1"
     
     # Verify script exists
     if (-not (Test-Path -Path $fileTrackerScript)) {
-        Write-Log "Start-FileTracker.ps1 script not found at: $fileTrackerScript" -Level "ERROR"
+        Write-Log "Start-FileTrackerAPI.ps1 script not found at: $fileTrackerScript" -Level "ERROR"
         exit 1
     }
     

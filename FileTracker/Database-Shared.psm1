@@ -114,17 +114,6 @@ function Get-DefaultDatabasePath {
     return Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
 }
 
-function Get-CollectionDatabasePath {
-    <#
-    .SYNOPSIS
-        Returns the path for a specific collection's database file.
-    .DESCRIPTION
-        This function returns the path for a specific collection's database file in the dedicated folder.
-    # This function seems incorrect as there's only one central DB. Removing it.
-}
-
-# Collection management functions
-
 function Get-Collections {
     <#
     .SYNOPSIS

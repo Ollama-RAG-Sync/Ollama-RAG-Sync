@@ -43,18 +43,7 @@ function Initialize-VectorsConfig {
     
     # Override with user configuration
     foreach ($key in $ConfigOverrides.Keys) {
-        if ($script:Config.ContainsKey($key)) {
-            $script:Config[$key] = $ConfigOverrides[$key]
-            Write-VectorsLog -Message "Configuration override: $key = $($ConfigOverrides[$key])" -Level "Debug"
-        } else {
-            Write-VectorsLog -Message "Unknown configuration key: $key" -Level "Warning"
-        }
-    }
-
-    # Ensure ChromaDB path exists
-    if (-not (Test-Path -Path $script:Config.ChromaDbPath)) {
-        New-Item -Path $script:Config.ChromaDbPath -ItemType Directory -Force | Out-Null
-        Write-VectorsLog -Message "Created ChromaDB directory: $($script:Config.ChromaDbPath)" -Level "Info"
+        $script:Config[$key] = $ConfigOverrides[$key]
     }
 
     Write-VectorsLog -Message "Vectors configuration initialized" -Level "Info"
@@ -75,6 +64,12 @@ function Get-VectorsConfig {
     [CmdletBinding()]
     param ()
     
+    Write-Host "Getting configuration for Vectors subsystem..." -ForegroundColor Cyan
+    Write-Host "Current configuration:" -ForegroundColor Green
+    $script:Config.GetEnumerator() | ForEach-Object {
+        Write-Host "$($_.Key): $($_.Value)" -ForegroundColor White
+    }
+    
     return $script:Config
 }
 
@@ -94,8 +89,8 @@ function Write-VectorsLog {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory=$true, Position=0)]
-        [string]$Message,
-        
+        [object]$Message, # Changed type to object to accept Hashtable
+
         [Parameter(Mandatory=$false)]
         [ValidateSet("Debug", "Info", "Warning", "Error")]
         [string]$Level = "Info"
@@ -123,9 +118,18 @@ function Write-VectorsLog {
             "Error" { "Red" }
             default { "White" }
         }
-        
-        $formattedMessage = "[$timestamp] $levelString - $Message"
-        Write-Host $formattedMessage -ForegroundColor $color
+
+        $logPrefix = "[$timestamp] $levelString - "
+
+        if ($Message -is [hashtable]) {
+            Write-Host "$logPrefix Parameters:" -ForegroundColor $color
+            $Message.GetEnumerator() | ForEach-Object {
+                Write-Host (" " * ($logPrefix.Length)) + "$($_.Key) = $($_.Value)" -ForegroundColor $color
+            }
+        } else {
+            $formattedMessage = "$logPrefix$($Message.ToString())" # Ensure message is string
+            Write-Host $formattedMessage -ForegroundColor $color
+        }
     }
 }
 

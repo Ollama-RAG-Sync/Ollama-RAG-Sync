@@ -146,8 +146,8 @@ try {
                     $newCollectionParams = @{
                         Name = $data.name
                         SourceFolder = $data.sourceFolder
-                        InstallPath = $localInstallPath
-                        DatabasePath = $localDatabasePath # Pass the determined path
+                        InstallPath = $using:localInstallPath
+                        DatabasePath = $using:localDatabasePath # Pass the determined path
                     }
                     if ($data.PSObject.Properties.Name -contains 'description') { $newCollectionParams.Description = $data.description }
                     if ($data.PSObject.Properties.Name -contains 'includeExtensions') { $newCollectionParams.IncludeExtensions = $data.includeExtensions } # Assuming comma-separated string
@@ -182,7 +182,7 @@ try {
             try {
                 $collectionId = [int]$WebEvent.Parameters['collectionId']
                 # Use local variables
-                $collection = Get-Collection -Id $collectionId -DatabasePath $localDatabasePath -InstallPath $localInstallPath
+                $collection = Get-Collection -Id $collectionId -DatabasePath $using:localDatabasePath -InstallPath $using:localInstallPath
                 
                 if ($collection) {
                     $result = @{ success = $true; collection = $collection }
@@ -193,8 +193,7 @@ try {
                 Write-PodeJsonResponse -Value $result
             } catch {
                 Write-Log "Error in GET /collections/$($WebEvent.Parameters['collectionId']): $_" -Level "ERROR"
-                Set-PodeResponseStatus -Code 500
-                Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
         }  
 
@@ -207,8 +206,8 @@ try {
                 # Use local variables
                 $updateParams = @{
                     Id = $collectionId
-                    DatabasePath = $localDatabasePath
-                    InstallPath = $localInstallPath # Pass InstallPath
+                    DatabasePath = $using:localDatabasePath
+                    InstallPath = $using:localInstallPath # Pass InstallPath
                 }
                 
                 # Check explicitly if properties exist before adding
@@ -222,7 +221,7 @@ try {
                 
                 if ($success) {
                     # Use local variables
-                    $updatedCollection = Get-Collection -Id $collectionId -DatabasePath $localDatabasePath -InstallPath $localInstallPath
+                    $updatedCollection = Get-Collection -Id $collectionId -DatabasePath $using:localDatabasePath -InstallPath $using:localInstallPath
                     $result = @{ success = $true; message = "Collection updated successfully"; collection = $updatedCollection }
                 } else {
                     Set-PodeResponseStatus -Code 500 # Internal Server Error
@@ -231,8 +230,7 @@ try {
                 Write-PodeJsonResponse -Value $result
             } catch {
                 Write-Log "Error in PUT /collections/$($WebEvent.Parameters['collectionId']): $_" -Level "ERROR"
-                Set-PodeResponseStatus -Code 500
-                Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                Write-PodeJsonResponse -StatusCode 500 @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
         }   
 
@@ -241,7 +239,7 @@ try {
             try {
                 $collectionId = [int]$WebEvent.Parameters['collectionId']
                 # Use local variables
-                $success = Remove-Collection -Id $collectionId -DatabasePath $localDatabasePath -InstallPath $localInstallPath
+                $success = Remove-Collection -Id $collectionId -DatabasePath $using:localDatabasePath -InstallPath $using:localInstallPath
                 
                 if ($success) {
                     $result = @{ success = $true; message = "Collection deleted successfully" }
@@ -252,8 +250,7 @@ try {
                 Write-PodeJsonResponse -Value $result
             } catch {
                 Write-Log "Error in DELETE /collections/$($WebEvent.Parameters['collectionId']) : $_" -Level "ERROR"
-                Set-PodeResponseStatus -Code 500
-                Write-PodeJsonResponse -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
         }
 
@@ -262,7 +259,7 @@ try {
             try {
                 $collectionId = [int]$WebEvent.Parameters['collectionId']
                 # Use local variables
-                $collection = Get-Collection -Id $collectionId -DatabasePath $localDatabasePath -InstallPath $localInstallPath
+                $collection = Get-Collection -Id $collectionId -DatabasePath $using:localDatabasePath -InstallPath $using:localInstallPath
                 
                 if ($collection) {
                     # Get watch settings using the helper function (if moved to shared module) or direct DB access
@@ -270,7 +267,7 @@ try {
                     $watchSettings = $null
                     try {
                          # Use local variables
-                         $conn = Get-DatabaseConnection -DatabasePath $localDatabasePath -InstallPath $localInstallPath
+                         $conn = Get-DatabaseConnection -DatabasePath $using:localDatabasePath -InstallPath $using:localInstallPath
                          $cmd = $conn.CreateCommand()
                          $cmd.CommandText = "SELECT value FROM settings WHERE key = @Key"
                          $cmd.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@Key", "collection_${collectionId}_watch")))
@@ -306,7 +303,8 @@ try {
                 $data = $WebEvent.Data
                 $action = $data.action
                 # Use local variables
-                $collection = Get-Collection -Id $collectionId -DatabasePath $localDatabasePath -InstallPath $localInstallPath
+                $collection = Get-Collection -Id $collectionId -DatabasePath $using:localDatabasePath
+ -InstallPath $using:localInstallPath
                 if (-not $collection) {
                     Set-PodeResponseStatus -Code 404; Write-PodeJsonResponse -Value @{ success = $false; error = "Collection not found" }; return
                 }
@@ -333,7 +331,7 @@ try {
                     # Assuming direct DB access for now
                     try {
                          # Use local variables
-                         $conn = Get-DatabaseConnection -DatabasePath $localDatabasePath -InstallPath $localInstallPath
+                         $conn = Get-DatabaseConnection -DatabasePath $using:localDatabasePath -InstallPath $using:localInstallPath
                          $cmd = $conn.CreateCommand()
                          $cmd.CommandText = "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (@Key, @Value, @UpdatedAt)"
                          $cmd.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@Key", "collection_${collectionId}_watch")))
@@ -350,7 +348,7 @@ try {
                     $watchParams = @{
                         DirectoryToWatch = $collection.source_folder
                         ProcessInterval = $watchSettingsToSave.watchInterval
-                        InstallPath = $localInstallPath # Pass InstallPath
+                        InstallPath = $using:localInstallPath # Pass InstallPath
                         CollectionId = $collectionId # Pass CollectionId
                     }
                     if ($data.fileFilter) { $watchParams["FileFilter"] = $data.fileFilter } # Use provided filter or default in script
@@ -381,7 +379,7 @@ try {
                         # Update settings in DB to disabled
                          try {
                              # Use local variables
-                             $conn = Get-DatabaseConnection -DatabasePath $localDatabasePath -InstallPath $localInstallPath
+                             $conn = Get-DatabaseConnection -DatabasePath $using:localDatabasePath  -InstallPath $using:localInstallPath
                              $cmd = $conn.CreateCommand()
                              # Get current settings first to preserve other values
                              $cmd.CommandText = "SELECT value FROM settings WHERE key = @Key"
@@ -433,8 +431,9 @@ try {
                 # Use local variables
                 $params = @{ 
                     CollectionId = $collectionId 
-                    DatabasePath = $localDatabasePath 
-                    InstallPath = $localInstallPath # Pass InstallPath
+                    DatabasePath = $using:localDatabasePath
+ 
+                    InstallPath = $using:localInstallPath # Pass InstallPath
                 }
                 # Add switches based on query params
                 if ($dirty) { $params.DirtyOnly = $true }
@@ -465,8 +464,9 @@ try {
                     $params = @{ 
                         CollectionId = $collectionId 
                         FilePath = $data.filePath 
-                        DatabasePath = $localDatabasePath 
-                        InstallPath = $localInstallPath # Pass InstallPath
+                        DatabasePath = $using:localDatabasePath
+ 
+                        InstallPath = $using:localInstallPath # Pass InstallPath
                     }
                     if ($data.PSObject.Properties.Contains('originalUrl')) { $params.OriginalUrl = $data.originalUrl }
                     if ($data.PSObject.Properties.Contains('dirty')) { $params.Dirty = [bool]$data.dirty } # Default is true in function
@@ -499,7 +499,7 @@ try {
                     # Call the shared function now
                     # Ensure FileTracker-Shared.psm1 is imported earlier in the script
                     # Use local variables
-                    $success = Update-FileProcessingStatus -All -CollectionId $collectionId -Dirty $data.dirty -InstallPath $localInstallPath # DatabasePath determined by function
+                    $success = Update-FileProcessingStatus -All -CollectionId $collectionId -Dirty $data.dirty -InstallPath $using:localInstallPath # DatabasePath determined by function
                     if ($success) {
                         $result = @{ success = $true; message = "All files in collection $collectionId status updated"; dirty = $data.dirty }
                     } else {
@@ -522,7 +522,7 @@ try {
                 $collectionId = [int]$WebEvent.Parameters['collectionId'] # Get collection ID for context/logging
                 $fileId = [int]$WebEvent.Parameters['fileId']
                 # Use local variables
-                $success = Remove-FileFromCollection -FileId $fileId -DatabasePath $localDatabasePath -InstallPath $localInstallPath
+                $success = Remove-FileFromCollection -FileId $fileId -DatabasePath $using:localDatabasePath -InstallPath $using:localInstallPath
                 
                 if ($success) {
                     $result = @{ success = $true; message = "File (ID: $fileId) removed from collection (ID: $collectionId)" }
@@ -551,7 +551,7 @@ try {
                     $fileFound = $false
                     try {
                         # Use local variables
-                        $conn = Get-DatabaseConnection -DatabasePath $localDatabasePath -InstallPath $localInstallPath
+                        $conn = Get-DatabaseConnection -DatabasePath $using:localDatabasePath -InstallPath $using:localInstallPath
                         $cmd = $conn.CreateCommand()
                         $cmd.CommandText = "SELECT FilePath FROM files WHERE id = @FileId AND collection_id = @CollectionId"
                         $cmd.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FileId", $fileId)))
@@ -570,7 +570,8 @@ try {
 
                     # 2. Call Update-FileProcessingStatus using the SingleFile parameter set with the retrieved FilePath
                     # Use local variables
-                    $success = Update-FileProcessingStatus -FilePath $filePathToUpdate -Dirty $data.dirty -InstallPath $localInstallPath -DatabasePath $localDatabasePath # Use SingleFile set implicitly
+                    $success = Update-FileProcessingStatus -FilePath $filePathToUpdate -Dirty $data.dirty -InstallPath $using:localInstallPath -DatabasePath $using:localDatabasePath
+ # Use SingleFile set implicitly
                     
                     if ($success) {
                         $result = @{ success = $true; message = "File status updated"; file_id = $fileId; file_path = $filePathToUpdate; collection_id = $collectionId; dirty = $data.dirty }

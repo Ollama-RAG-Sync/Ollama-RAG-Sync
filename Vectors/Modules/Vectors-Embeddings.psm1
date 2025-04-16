@@ -6,6 +6,10 @@ if (-not (Get-Module -Name "Vectors-Core")) {
     Import-Module "$PSScriptRoot\Vectors-Core.psm1" -Force
 }
 
+if (-not (Get-Module -Name "Vectors-Embeddings")) {
+    Import-Module "$PSScriptRoot\Vectors-Embeddings.psm1" -Force
+
+}
 <#
 .SYNOPSIS
     Generates an embedding for a document
@@ -573,6 +577,8 @@ function Add-DocumentToVectorStore {
     
     $config = Get-VectorsConfig
     
+    Write-Host $config
+
     # Use config values if not specified
     if ($ChunkSize -le 0) {
         $ChunkSize = $config.ChunkSize
@@ -583,6 +589,7 @@ function Add-DocumentToVectorStore {
     }
     
     # Initialize vector database
+        
     $dbInitialized = Initialize-VectorDatabase
     if (-not $dbInitialized) {
         Write-VectorsLog -Message "Failed to initialize vector database" -Level "Error"

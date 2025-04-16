@@ -74,7 +74,6 @@ except Exception as e:
 "@
 
     $pythonCode | Out-File -FilePath $tempPythonScript -Encoding utf8
-    
     Write-VectorsLog -Message "Initializing ChromaDB collections at $($config.ChromaDbPath)" -Level "Info"
     
     # Execute the Python script

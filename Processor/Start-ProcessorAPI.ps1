@@ -504,7 +504,7 @@ function Start-ProcessorHttpServer {
                     }
                 } catch {
                     & $WriteLog "Error in DELETE /collections/$($WebEvent.Parameters['collectionId'])/processor: $_" -Level "ERROR"
-                    Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                    Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.ScriptStackTrace)" }
                 }
             } 
 

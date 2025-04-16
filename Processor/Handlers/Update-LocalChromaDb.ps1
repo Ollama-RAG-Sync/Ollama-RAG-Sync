@@ -46,7 +46,10 @@ function Write-CustomLog {
         [string]$Message,
         
         [Parameter(Mandatory=$false)]
-        [string]$Level = "INFO"
+        [string]$Level = "INFO",
+
+        [Parameter(Mandatory=$false)]
+        [string]$LevLogFilePath = $logFilePath
     )
     
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -62,7 +65,7 @@ function Write-CustomLog {
     else {
         Write-Host $logMessage
     }
-    Add-Content -Path $logFilePath  -Value $logMessage
+    Add-Content -Path $LogFilePath  -Value $logMessage
 }
 
 # Function to add document to vectors using REST API
