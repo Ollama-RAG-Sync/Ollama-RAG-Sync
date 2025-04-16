@@ -53,9 +53,6 @@ function Write-Log {
     else {
         Write-Host $logMessage -ForegroundColor $ForegroundColor # Use specified or default color
     }
-    
-    # Write to log file
-    Add-Content -Path $LogFilePath -Value $logMessage
 }
 
 # Compute DatabasePath from InstallationPath
@@ -91,8 +88,8 @@ try {
         $localDatabasePath = $DatabasePath
         
         # Pode logging setup
-        New-PodeLoggingMethod -Terminal | Enable-PodeErrorLogging # Example, adjust as needed
         Add-PodeEndpoint -Address $ListenAddress -Port $Port -Protocol Http
+        New-PodeLoggingMethod -Terminal | Enable-PodeErrorLogging -Levels Error, Warning, Informational, Verbose
 
         # --- API Routes ---
 
@@ -502,13 +499,13 @@ try {
                     $success = Update-FileProcessingStatus -All -CollectionId $collectionId -Dirty $data.dirty -InstallPath $using:localInstallPath # DatabasePath determined by function
                     if ($success) {
                         $result = @{ success = $true; message = "All files in collection $collectionId status updated"; dirty = $data.dirty }
+                        Write-PodeJsonResponse -StatusCode 200 -Value $result
                     } else {
-                        Set-PodeResponseStatus -Code 500; $result = @{ success = $false; error = "Failed to update files" }
+                        Write-PodeJsonResponse -StatusCode 500; $result = @{ success = $false; error = "Failed to update files" }
                     }
                 } else {
-                    Set-PodeResponseStatus -Code 400; $result = @{ success = $false; error = "Invalid request. Requires 'dirty' field." }
+                    Write-PodeJsonResponse -StatusCode 400; $result = @{ success = $false; error = "Invalid request. Requires 'dirty' field." }
                 }
-                Write-PodeJsonResponse -Value $result
                 
             } catch {
                 Write-Log "Error in PUT /collections/$($WebEvent.Parameters['collectionId'])/files: $_" -Level "ERROR"
@@ -526,16 +523,17 @@ try {
                 
                 if ($success) {
                     $result = @{ success = $true; message = "File (ID: $fileId) removed from collection (ID: $collectionId)" }
+                    Write-PodeJsonResponse -StatusCode 200 -Value $result
                 } else {
-                    Set-PodeResponseStatus -Code 500; $result = @{ success = $false; error = "Failed to remove file" }
+                    Write-PodeJsonResponse -StatusCode 500; $result = @{ success = $false; error = "Failed to remove file" }
                 }
-                Write-PodeJsonResponse -Value $result
                 
             } catch {
                 Write-Log "Error in DELETE /collections/.../files/$($WebEvent.Parameters['fileId']): $_" -Level "ERROR"
-                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message), $($_.ScriptStackTrace)"}
+                
             }
-        }  
+        }   
 
         # PUT /api/collections/{id}/files/{fileId}
         Add-PodeRoute -Method Put -Path "$ApiPath/collections/:collectionId/files/:fileId" -ScriptBlock {
@@ -561,33 +559,32 @@ try {
                         $fileFound = ($null -ne $filePathToUpdate)
                     } catch {
                         Write-Log "Error fetching file path for ID $fileId in collection $collectionId : $_" -Level "ERROR"
-                        Set-PodeResponseStatus -Code 500; Write-PodeJsonResponse -Value @{ success = $false; error = "Internal server error checking file existence" }; return
+                        Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal server error checking file existence" }; return
                     }
 
                     if (-not $fileFound) {
-                        Set-PodeResponseStatus -Code 404; Write-PodeJsonResponse -Value @{ success = $false; error = "File with ID $fileId not found in collection $collectionId" }; return
+                        Write-PodeJsonResponse -StatusCode 404 -Value @{ success = $false; error = "File with ID $fileId not found in collection $collectionId" }; return
                     }
 
                     # 2. Call Update-FileProcessingStatus using the SingleFile parameter set with the retrieved FilePath
                     # Use local variables
-                    $success = Update-FileProcessingStatus -FilePath $filePathToUpdate -Dirty $data.dirty -InstallPath $using:localInstallPath -DatabasePath $using:localDatabasePath
- # Use SingleFile set implicitly
-                    
+                    $success = Update-FileProcessingStatus -FilePath $filePathToUpdate -Dirty $true -InstallPath "D:\install3" -DatabasePath "D:\install3\FileTracker.db"
                     if ($success) {
                         $result = @{ success = $true; message = "File status updated"; file_id = $fileId; file_path = $filePathToUpdate; collection_id = $collectionId; dirty = $data.dirty }
+                        Write-PodeJsonResponse -Value $result
+
                     } else {
                          # The shared function writes specific errors
-                         Set-PodeResponseStatus -Code 500 
                          $result = @{ success = $false; error = "Failed to update file status for '$filePathToUpdate' (check server logs)" }
+                         Write-PodeJsonResponse -StatusCode 500 -Value $result;
                     }
                 } else {
-                    Set-PodeResponseStatus -Code 400; $result = @{ success = $false; error = "Invalid request. Requires 'dirty' field." }
+                    $result = @{ success = $false; error = "Invalid request. Requires 'dirty' field." }
+                    Write-PodeJsonResponse -StatusCode 400 -Value $result
                 }
-                Write-PodeJsonResponse -Value $result
-                
             } catch {
                 Write-Log "Error in PUT /collections/.../files/$($WebEvent.Parameters['fileId']): $_" -Level "ERROR"
-                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message), $($_.ScriptStackTrace)"}
             }
         }  
 

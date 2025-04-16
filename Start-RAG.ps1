@@ -205,47 +205,6 @@ catch {
     exit 1
 }
 
-# Start the Processor REST API to handle file processing
-Write-Log "Starting Processor REST API..." -Level "INFO"
-try {
-    # Start Processor API service
-    $processorScript = Join-Path -Path $scriptDirectory -ChildPath "Processor\Start-ProcessorAPI.ps1"
-    
-    # Verify script exists
-    if (-not (Test-Path -Path $processorScript)) {
-        Write-Log "Start-Processor.ps1 script not found at: $processorScript" -Level "ERROR"
-        exit 1
-    }
-    
-    # Create processor API job
-    $processorJobScript = {
-        param($scriptPath, $fileTrackerApiUrl, $ollamaUrl, $embeddingModel, $chunkSize, $chunkOverlap, $port, $installPath)
-        try
-        {
-            & $scriptPath -FileTrackerUrl $fileTrackerApiUrl -InstallPath $installPath -OllamaUrl $ollamaUrl -EmbeddingModel $embeddingModel -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -UseChunking $true -Port $port
-        }
-        catch {
-            Write-Log "Error starting Processor API: $_" -Level "ERROR"
-            exit 1
-        }
-    }
-    $processorJob = Start-Job -ScriptBlock $processorJobScript -ArgumentList $processorScript, $fileTrackerApiUrl, $OllamaUrl, $EmbeddingModel, $ChunkSize, $ChunkOverlap, $ProcessorPort,$InstallPath
-
-    # Wait a moment for the Processor API to start
-    Start-Sleep -Seconds 2
-    
-    Write-Log "Processor REST API started successfully (Job ID: $($processorJob.Id))" -Level "INFO"
-    Write-Log "Processor API available at: http://localhost:$ProcessorPort/api" -Level "INFO"
-}
-catch {
-    Write-Log "Error starting Processor subsystem: $_" -Level "ERROR"
-    # Try to stop already running jobs
-    if ($vectorsAPIJob) { Stop-Job -Id $vectorsAPIJob.Id -ErrorAction SilentlyContinue; Remove-Job -Id $vectorsAPIJob.Id -Force -ErrorAction SilentlyContinue }
-    if ($fileTrackerJob) { Stop-Job -Id $fileTrackerJob.Id -ErrorAction SilentlyContinue; Remove-Job -Id $fileTrackerJob.Id -Force -ErrorAction SilentlyContinue }
-    if ($watchCollectionJob) { Stop-Job -Id $watchCollectionJob.Id -ErrorAction SilentlyContinue; Remove-Job -Id $watchCollectionJob.Id -Force -ErrorAction SilentlyContinue }
-    exit 1
-}
-
 # Start the API proxy server as a background job
 Write-Log "Starting API proxy server for RAG-enhanced chat capabilities..." -Level "INFO"
 try {
@@ -291,7 +250,6 @@ if ($ContextOnlyMode) {
 }
 Write-Log "- Vectors API job ID: $($vectorsAPIJob.Id)" -Level "INFO" 
 Write-Log "- FileTracker job ID: $($fileTrackerJob.Id)" -Level "INFO"
-Write-Log "- Processor API job ID: $($processorJob.Id)" -Level "INFO"
 Write-Log "- API proxy server job ID: $($apiProxyJob.Id)" -Level "INFO"
 Write-Log "- API endpoint: http://localhost:$ApiProxyPort/" -Level "INFO"
 
@@ -299,7 +257,6 @@ Write-Log "`nThe system is now running in the background. To stop it:" -Level "I
 Write-Log "1. Stop the Vectors API job: Stop-Job -Id $($vectorsAPIJob.Id); Remove-Job -Id $($vectorsAPIJob.Id)" -Level "INFO"
 Write-Log "2. Stop the FileTracker job: Stop-Job -Id $($fileTrackerJob.Id); Remove-Job -Id $($fileTrackerJob.Id)" -Level "INFO"
 Write-Log "3. Stop the collection watcher job: Stop-Job -Id $($watchCollectionJob.Id); Remove-Job -Id $($watchCollectionJob.Id)" -Level "INFO"
-Write-Log "4. Stop the Processor API job: Stop-Job -Id $($processorJob.Id); Remove-Job -Id $($processorJob.Id)" -Level "INFO"
 Write-Log "5. Stop the Proxy API job: Stop-Job -Id $($apiProxyJob.Id); Remove-Job -Id $($apiProxyJob.Id)" -Level "INFO"
 
 Write-Log "`nTo interact with the RAG system:" -Level "INFO"
