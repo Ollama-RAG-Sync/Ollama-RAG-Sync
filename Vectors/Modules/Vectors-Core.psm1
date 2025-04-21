@@ -64,12 +64,6 @@ function Get-VectorsConfig {
     [CmdletBinding()]
     param ()
     
-    Write-Host "Getting configuration for Vectors subsystem..." -ForegroundColor Cyan
-    Write-Host "Current configuration:" -ForegroundColor Green
-    $script:Config.GetEnumerator() | ForEach-Object {
-        Write-Host "$($_.Key): $($_.Value)" -ForegroundColor White
-    }
-    
     return $script:Config
 }
 

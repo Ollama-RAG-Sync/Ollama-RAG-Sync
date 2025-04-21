@@ -9,7 +9,7 @@ param(
     [int]$MaxResults = 10,
     
     [Parameter(Mandatory=$false)]
-    [double]$MinScore = 0.0,
+    [double]$MinScore = 0.5,
     
     [Parameter(Mandatory=$false)]
     [hashtable]$WhereFilter = @{},
@@ -42,7 +42,7 @@ if ($EmbeddingModel) {
     $configOverrides.EmbeddingModel = $EmbeddingModel
 }
 
-Initialize-VectorsConfig -ConfigOverrides $configOverrides
+$null = Initialize-VectorsConfig -ConfigOverrides $configOverrides
 
 # Verify requirements
 if (-not (Test-VectorsRequirements)) {

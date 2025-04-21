@@ -255,7 +255,7 @@ function Search-Documents {
         [int]$MaxResults = 10,
         
         [Parameter(Mandatory=$false)]
-        [double]$MinScore = 0.0,
+        [double]$MinScore = 0.5,
         
         [Parameter(Mandatory=$false)]
         [bool]$ReturnSourceContent = $false,
@@ -295,7 +295,7 @@ function Search-Documents {
 
         if ($results -ne $null -and $results.Count -gt 0) {
             Write-Log "Found $($results.Count) matching documents for query: $Query"
-            return @{ success = $true; results = $results; count = $results.Count; query = $Query }
+            return @{ success = $true; results = ,$results; count = $results.Count; query = $Query }
         } else {
             Write-Log "No matching documents found for query: $Query" -Level "INFO"
             return @{ success = $true; results = @(); count = 0; query = $Query }
@@ -460,7 +460,7 @@ try {
                 
                 $query = $data.query
                 $maxResults = if ($null -ne $data.max_results) { $data.max_results } else { 10 }
-                $threshold = if ($null -ne $data.threshold) { $data.threshold } else { 0.0 }
+                $threshold = if ($null -ne $data.threshold) { $data.threshold } else { 0.5 }
                 $returnContent = if ($null -ne $data.return_content) { $data.return_content } else { $false }
                 $whereFilter = if ($null -ne $data.filter) { $data.filter } else { @{} }
                 $result = Search-Documents -ChromaDbPath $using:chromaDbPath -OllamaUrl $using:ollamaUrl -EmbeddingModel $using:embeddingModel -Query $query -MaxResults $maxResults -MinScore $threshold -ReturnSourceContent $returnContent -WhereFilter $whereFilter
