@@ -69,7 +69,7 @@ public class ResponseData
 
 internal static class HttpClientExt
 {
-    public static async Task<ResponseData> ReadJsonDocumentAsync(this HttpClient client, RequestData request, string requestUri)
+    public static async Task<ResponseData> ReadJsonDocumentAsync(this HttpClient client, RequestData request, string requestUri, CancellationToken cancellationToken)
     {
         string jsonPayload = JsonSerializer.Serialize(request);
         using var response = await client.PostAsync(requestUri, new StringContent(jsonPayload, System.Text.Encoding.UTF8, "application/json"));
@@ -78,7 +78,7 @@ internal static class HttpClientExt
             throw new HttpRequestException($"Request failed with status code {response.StatusCode}");
         }
         response.EnsureSuccessStatusCode();
-        var content = await response.Content.ReadAsStringAsync();
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
         var result = JsonSerializer.Deserialize<ResponseData>(content);
         return result;
     }
@@ -88,45 +88,26 @@ internal static class HttpClientExt
 public static class EchoTool
 {
     [McpServerTool(Name = "localDocumentsSearch"), Description("Finds the best local document")]
-    public static string LocalDocumentsSearch(string prompt, HttpClient client)
+    public static string LocalDocumentsSearch(string prompt, HttpClient client, CancellationToken cancellationToken, [Description("Threashold of similarity of document to return")] decimal threashold = 0.7m)
     {
         Debugger.Launch();
         var requestData = new RequestData
         {
             Query = prompt,
-            Threshold = 0.7m
+            Threshold = threashold
         };
-        var task = client.ReadJsonDocumentAsync(requestData, "http://localhost:10001/api/search/documents");
+        var urlItem = Environment.GetEnvironmentVariable("Ollama-RAG-Sync-ProxyUrl");
+        
+        string url = "http://localhost:10001/api/search/documents";
+        if (urlItem != null)
+        {
+            url = urlItem;
+        }    
+        var task = client.ReadJsonDocumentAsync(requestData, url, cancellationToken);
 
         var response = task.Result;
 
 
         return JsonSerializer.Serialize(response);
     }
-}
-
-/// <summary>
-/// Represents the parameters used with a <see cref="RequestMethods.ToolsCall"/> request from a client to invoke a tool provided by the server.
-/// </summary>
-/// <remarks>
-/// The server will respond with a <see cref="CallToolResponse"/> containing the result of the tool invocation.
-/// See the <see href="https://github.com/modelcontextprotocol/specification/blob/main/schema/">schema</see> for details.
-/// </remarks>
-public class CallToolRequestParams : RequestParams
-{
-    /// <summary>Gets or sets the name of the tool to invoke.</summary>
-    [JsonPropertyName("name")]
-    public required string Name { get; init; }
-
-    /// <summary>
-    /// Gets or sets optional arguments to pass to the tool when invoking it on the server.
-    /// </summary>
-    /// <remarks>
-    /// This dictionary contains the parameter values to be passed to the tool. Each key-value pair represents 
-    /// a parameter name and its corresponding argument value.
-    /// </remarks>
-    [JsonPropertyName("arguments")]
-    public IReadOnlyDictionary<string, JsonElement>? Arguments { get; init; }
-
-    public string SearchUrl => Arguments.Values.First().GetString();
 }

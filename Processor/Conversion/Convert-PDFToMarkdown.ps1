@@ -372,6 +372,7 @@ import sys
 import os
 from marker.converters.pdf import PdfConverter
 from marker.models import create_model_dict
+from marker.config.parser import ConfigParser
 
 if __name__ == "__main__":
     try:
@@ -379,9 +380,18 @@ if __name__ == "__main__":
         pdf_file = '$($PdfFile.Replace("\", "\\"))'
         md_output = '$($MdOutputPath.Replace("\", "\\"))'
     
+        config = {
+            "disable_image_extraction": "true",
+            "output_format": "markdown"
+        }
+        config_parser = ConfigParser(config)
+
         # Initialize the converter
         converter = PdfConverter(
+            config=config_parser.generate_config_dict(),
             artifact_dict=create_model_dict(),
+            processor_list=config_parser.get_processors(),
+            renderer=config_parser.get_renderer()
         )
     
         # Convert the PDF

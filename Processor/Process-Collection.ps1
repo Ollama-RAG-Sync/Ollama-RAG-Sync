@@ -28,7 +28,11 @@ param(
     [int]$ProcessInterval = 5, # Interval in minutes for continuous mode
 
     [Parameter(Mandatory=$false)]
-    [string]$StopFileName = ".stop_processing" # File name to signal stop in continuous mode
+    [string]$StopFileName = ".stop_processing", # File name to signal stop in continuous mode
+
+    [Parameter(Mandatory=$true)]
+    [ValidateSet("marker", "tesseract", "ocrmypdf", "pymupdf")]
+    [string]$OcrTool
 )
 
 # --- Logging Functions (from Processor-Logging.psm1) ---
@@ -172,7 +176,8 @@ function Get-CollectionDirtyFiles {
         $response = Invoke-RestMethod -Uri $uri -Method Get
 
         if ($response.success) {
-            return $response.files
+            & $WriteLog "Success fetching dirty files for collection $CollectionId (Length = $($response.files.Length))" -Level "DEBUG"
+            return ,$response.files
         }
         else {
             & $WriteLog "Error fetching dirty files for collection $CollectionId : $($response.error)" -Level "ERROR"
@@ -344,7 +349,10 @@ function Add-DocumentToVectors {
         [int]$LocalChunkSize = $ChunkSize, # Use script param default
 
         [Parameter(Mandatory=$false)]
-        [int]$LocalChunkOverlap = $ChunkOverlap # Use script param default
+        [int]$LocalChunkOverlap = $ChunkOverlap, # Use script param default,
+
+        [Parameter(Mandatory=$true)]
+        [string]$OcrTool
     )
 
     $originalFilePath = $FileInfo.FilePath # Store original path
@@ -383,7 +391,7 @@ function Add-DocumentToVectors {
                 # Add -ErrorAction Stop to catch script errors
                 # Ensure the conversion script handles its own output path logic (e.g., placing MD next to PDF)
                 & $WriteLog "Executing conversion script: '$conversionScriptPath' with PdfPath: '$filePath'" -Level "DEBUG" # Corrected logging format
-                & $conversionScriptPath -PdfFilePath $filePath -OutputFilePath ($filePath + ".md") -LogFile $script:LogFilePath -ErrorAction Stop
+                & $conversionScriptPath -PdfFilePath $filePath -OutputFilePath ($filePath + ".md") -LogFile $script:LogFilePath -OcrTool $OcrTool -ErrorAction Stop
                 # Trim potential whitespace from output
 
                 $markdownOutputPath = $filePath + ".md"
@@ -442,14 +450,14 @@ function Add-DocumentToVectors {
     finally {
         # --- Cleanup Temporary Markdown File ---
         # Only remove if it was actually created and is different from the original path
-        if ($null -ne $temporaryMarkdownPath -and ($temporaryMarkdownPath -ne $originalFilePath) -and (Test-Path -Path $temporaryMarkdownPath)) {
-            & $WriteLog "Cleaning up temporary Markdown file: $temporaryMarkdownPath" -Level "DEBUG"
-            try {
-                Remove-Item -Path $temporaryMarkdownPath -Force -ErrorAction SilentlyContinue
-            } catch {
-                & $WriteLog "Failed to remove temporary Markdown file '$temporaryMarkdownPath': $_" -Level "WARNING"
-            }
-        }
+        #if ($null -ne $temporaryMarkdownPath -and ($temporaryMarkdownPath -ne $originalFilePath) -and (Test-Path -Path $temporaryMarkdownPath)) {
+        #    & $WriteLog "Cleaning up temporary Markdown file: $temporaryMarkdownPath" -Level "DEBUG"
+        #    try {
+        #        Remove-Item -Path $temporaryMarkdownPath -Force -ErrorAction SilentlyContinue
+        #    } catch {
+        #        & $WriteLog "Failed to remove temporary Markdown file '$temporaryMarkdownPath': $_" -Level "WARNING"
+        #    }
+        #}
         # --- Cleanup End ---
     }
 }
@@ -457,7 +465,10 @@ function Add-DocumentToVectors {
 function Process-DirtyFile {
     param (
         [Parameter(Mandatory=$true)]
-        [PSCustomObject]$FileInfo
+        [PSCustomObject]$FileInfo,
+
+        [Parameter(Mandatory=$true)]
+        [string]$OcrTool
     )
 
     $filePath = $FileInfo.FilePath
@@ -467,7 +478,7 @@ function Process-DirtyFile {
     & $WriteLog "Processing dirty file: $filePath (ID: $fileId) in collection: $CollectionName"
 
     # Add document to Vectors
-    $success = Add-DocumentToVectors -FileInfo $FileInfo
+    $success = Add-DocumentToVectors -FileInfo $FileInfo -OcrTool $OcrTool
 
     if ($success) {
         # Mark file as processed in FileTracker
@@ -507,7 +518,8 @@ function Test-StopFile {
 function Process-CollectionBatch {
     param(
         [string]$CollectionNameParam, # Renamed
-        [string]$FileTrackerBaseUrl
+        [string]$FileTrackerBaseUrl,
+        [string]$OcrTool
     )
 
     try {
@@ -534,7 +546,7 @@ function Process-CollectionBatch {
         $errorCount = 0
 
         foreach ($file in $dirtyFiles) {
-            $success = Process-DirtyFile -FileInfo $file
+            $success = Process-DirtyFile -FileInfo $file -OcrTool $OcrTool
 
             if ($success) {
                 $processedCount++
@@ -593,7 +605,7 @@ try {
             }
 
             # Process the current batch of dirty files
-            $batchSuccess = Process-CollectionBatch -CollectionNameParam $CollectionName -FileTrackerBaseUrl $FileTrackerApiUrl
+            $batchSuccess = Process-CollectionBatch -CollectionNameParam $CollectionName -FileTrackerBaseUrl $FileTrackerApiUrl -OcrTool $OcrTool
 
             # Check if we should continue (batchSuccess being false could mean errors or stop file)
             if (-not $batchSuccess) {
@@ -642,7 +654,7 @@ try {
     }
     # Otherwise, just run once
     else {
-        $batchSuccess = Process-CollectionBatch -CollectionNameParam $CollectionName -FileTrackerBaseUrl $FileTrackerApiUrl
+        $batchSuccess = Process-CollectionBatch -CollectionNameParam $CollectionName -FileTrackerBaseUrl $FileTrackerApiUrl -OcrTool $OcrTool
         if (-not $batchSuccess) {
              & $WriteLog "Single batch processing run completed with errors." -Level "ERROR"
             exit 1 # Exit with error code if the single run had errors

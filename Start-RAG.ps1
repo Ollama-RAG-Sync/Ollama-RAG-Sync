@@ -196,7 +196,7 @@ try {
     Start-Sleep -Seconds 2
     
     Write-Log "FileTracker started successfully (Job ID: $($fileTrackerJob.Id))" -Level "INFO"
-    Write-Log "FileTracker API available at: http://localhost:$FileTrackerPort/api" -Level "INFO"
+    Write-Log "FileTracker API available at: http://localhost:$FileTrackerPort" -Level "INFO"
 }
 catch {
     Write-Log "Error starting FileTracker subsystem: $_" -Level "ERROR"
