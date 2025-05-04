@@ -3,7 +3,6 @@
     Downloads and installs the SQLite assemblies for use with PowerShell.
 .DESCRIPTION
     This script downloads the required NuGet packages for SQLite, extracts them, and copies
-    the necessary DLLs to the specified installation directory under a .ai/libs folder.
     
     Packages installed:
     - Microsoft.Data.Sqlite.Core
@@ -11,7 +10,7 @@
     - SQLitePCLRaw.provider.e_sqlite3
     - SQLitePCLRaw.lib.e_sqlite3
 .PARAMETER FolderPath
-    The base folder where the .ai/libs directories will be created and assemblies installed.
+    The base folder where  assemblies installed.
 .PARAMETER Force
     If specified, forces the installation by closing handles to any DLLs that might be in use.
 .EXAMPLE
@@ -22,7 +21,7 @@
 
 param (
     [Parameter(Mandatory = $true)]
-    [string]$FolderPath,
+    [string]$InstallPath,
     
     [Parameter(Mandatory = $false)]
     [switch]$Force
@@ -57,10 +56,8 @@ $packages = @(
 )
 
 # Setup paths
-$aiFolder = Join-Path -Path $FolderPath -ChildPath ".ai"
-$installFolder = Join-Path -Path $aiFolder -ChildPath "libs"
-$tempFolder = Join-Path -Path $env:TEMP -ChildPath "SQLite_Temp"
-$handleExe = Join-Path -Path $installFolder -ChildPath "handle.exe"
+$tempFolder = Join-Path -Path $InstallPath -ChildPath "temp"
+$handleExe = Join-Path -Path $InstallPath -ChildPath "handle.exe"
 
 function Allow-FileWrite {
     param (
@@ -77,38 +74,6 @@ function Allow-FileWrite {
     & attrib.exe -R $Dir /S /D
 }
 
-function Initialize-Directories {
-    param (
-        [string]$AiDir,
-        [string]$LibsDir
-    )
-    
-    # Create .ai folder if it doesn't exist
-    if (-not (Test-Path -Path $AiDir)) {
-        try {
-            New-Item -Path $AiDir -ItemType Directory -ErrorAction Stop
-            Allow-FileWrite -Dir $AiDir
-            Write-Host "Created .ai folder at $AiDir" -ForegroundColor Yellow
-        }
-        catch {
-            Write-Error "Failed to create directory $AiDir : $_"
-            exit 1
-        }
-    }
-    
-    # Create libs folder if it doesn't exist
-    if (-not (Test-Path -Path $LibsDir)) {
-        try {
-            New-Item -Path $LibsDir -ItemType Directory -ErrorAction Stop
-            Allow-FileWrite -Dir $LibsDir
-            Write-Host "Created libs folder at $LibsDir" -ForegroundColor Yellow
-        }
-        catch {
-            Write-Error "Failed to create directory $LibsDir : $_"
-            exit 1
-        }
-    }
-}
 
 function Download-HandleExe {
     param (
@@ -251,7 +216,7 @@ function Install-Package {
     
     $nugetUrl = "https://www.nuget.org/api/v2/package/$packageName/$packageVersion"
     $tempFile = Join-Path -Path $env:TEMP -ChildPath "$packageName.nupkg"
-    $targetFilePath = Join-Path -Path $installFolder -ChildPath $targetFileName
+    $targetFilePath = Join-Path -Path $InstallPath -ChildPath $targetFileName
     
     try {
         # Check if file already exists and is valid
@@ -360,7 +325,7 @@ function Install-Package {
 function Check-AllDllsExist {
     $allExist = $true
     foreach ($package in $packages) {
-        $targetFilePath = Join-Path -Path $installFolder -ChildPath $package.TargetFile
+        $targetFilePath = Join-Path -Path $InstallPath -ChildPath $package.TargetFile
         if (-not (Test-Path -Path $targetFilePath)) {
             $allExist = $false
             break
@@ -371,14 +336,11 @@ function Check-AllDllsExist {
 
 # Main execution
 try {
-    # Create required directories
-    Initialize-Directories -AiDir $aiFolder -LibsDir $installFolder
-    
     # Check if all DLLs already exist and we're not forcing reinstall
     $allDllsExist = Check-AllDllsExist
     if ($allDllsExist -and -not $Force) {
         Write-Host "All SQLite assemblies are already installed. Use -Force to reinstall." -ForegroundColor Green
-        Write-Host "Installation directory: $installFolder"
+        Write-Host "Installation directory: $InstallPath"
         exit 0
     }
     
@@ -407,7 +369,7 @@ try {
     # Report results
     if ($successCount -eq $totalPackages) {
         Write-Host "SQLite assemblies installed successfully ($successCount/$totalPackages)."
-        Write-Host "Installation directory: $installFolder" -ForegroundColor Cyan
+        Write-Host "Installation directory: $InstallPath" -ForegroundColor Cyan
     }
     else {
         Write-Host "SQLite assembly installation partially completed ($successCount/$totalPackages)."

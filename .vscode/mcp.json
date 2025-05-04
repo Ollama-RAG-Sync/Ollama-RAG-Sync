@@ -1,0 +1,12 @@
+{
+    "inputs": [],
+    "servers": {
+        "LocalDocs": {
+            "type": "stdio",
+            "command": "dotnet",
+            "args": [
+                "D:\\repo\\Ollama-RAG-Sync\\MCP\\bin\\Debug\\net8.0\\Ollama-RAG-Sync.dll"
+            ]
+        }
+    }
+}
