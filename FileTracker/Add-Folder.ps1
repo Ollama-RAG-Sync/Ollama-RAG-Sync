@@ -82,7 +82,12 @@ $initScript = Join-Path -Path $scriptParentPath -ChildPath "Initialize-Database.
 # Create a new collection
 Write-Host "Creating collection '$CollectionName'..." -ForegroundColor Cyan
 # Note: IncludeExtensions is not specified, meaning all files are included by default in New-Collection logic (assuming it handles null/empty)
-$collection = New-Collection -Name $CollectionName -Description $Description -SourceFolder $FolderPath -ExcludeFolders ($OmitFolders -join ',') -InstallPath $InstallPath -DatabasePath $DatabasePath
+$collection = Get-CollectionByName -Name $CollectionName -InstallPath $InstallPath
+if ($null -eq $collection) {
+    $collection = New-Collection -Name $CollectionName -Description $Description -SourceFolder $FolderPath -ExcludeFolders ($OmitFolders -join ',') -InstallPath $InstallPath -DatabasePath $DatabasePath
+} else {
+    Write-Host "Creating new collection..." -ForegroundColor Green
+}
 
 if (-not $collection) {
     Write-Error "Failed to create collection. Check previous errors."
@@ -144,7 +149,7 @@ $files | ForEach-Object {
 }
 
 Write-Progress -Activity "Adding files to collection '$CollectionName'" -Completed
-Write-Host "Collection '$CollectionName' initialized with $filesProcessed files." -ForegroundColor Green
+Write-Host "Collection '$CollectionName' added with $filesProcessed files." -ForegroundColor Green
 Write-Host "All files have been marked as 'dirty' for initial processing." -ForegroundColor Cyan
 Write-Host "Folder '$FolderPath' added as collection '$CollectionName'." -ForegroundColor Green
 Write-Host "FileTracker service will pick up this collection for monitoring based on saved settings." -ForegroundColor Cyan

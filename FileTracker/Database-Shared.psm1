@@ -187,12 +187,16 @@ function Get-Collection {
         [Parameter(Mandatory = $true)]
         [int]$Id,
         
-        [Parameter(Mandatory = $true)]
+        [Parameter(Mandatory = $false)]
         [string]$DatabasePath,
 
         [Parameter(Mandatory = $true)]
         [string]$InstallPath # Required for Get-DatabaseConnection
     )
+    # Determine Database Path
+    if (-not $DatabasePath) {
+        $DatabasePath = Get-DefaultDatabasePath -InstallPath $InstallPath
+    }
     
     try {
         $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
@@ -200,6 +204,73 @@ function Get-Collection {
         $command = $connection.CreateCommand()
         $command.CommandText = "SELECT id, name, description, source_folder, include_extensions, exclude_folders, created_at, updated_at FROM collections WHERE id = @Id"
         $null = $command.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@Id", $Id)))
+        
+        $reader = $command.ExecuteReader()
+        
+        if ($reader.Read()) {
+            $collection = @{
+                id = $reader.GetInt32(0)
+                name = $reader.GetString(1)
+                description = if ($reader.IsDBNull(2)) { $null } else { $reader.GetString(2) }
+                source_folder = $reader.GetString(3)
+                include_extensions = if ($reader.IsDBNull(4)) { $null } else { $reader.GetString(4) }
+                exclude_folders = if ($reader.IsDBNull(5)) { $null } else { $reader.GetString(5) }
+                created_at = $reader.GetString(6)
+                updated_at = $reader.GetString(7)
+            }
+            
+            $reader.Close()
+            return $collection
+        }
+        else {
+            $reader.Close()
+            return $null
+        }
+    }
+    catch {
+        Write-Error "Error getting collection: $_"
+        return $null
+    }
+    finally {
+        if ($connection) {
+            $connection.Close()
+            $connection.Dispose()
+        }
+    }
+}
+
+function Get-CollectionByName {
+    <#
+    .SYNOPSIS
+        Gets a specific collection from the FileTracker database.
+    .DESCRIPTION
+        This function retrieves a specific collection from the FileTracker database.
+    .PARAMETER Id
+        The ID of the collection to retrieve.
+    .PARAMETER DatabasePath
+        The path to the SQLite database file.
+    #>
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$DatabasePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InstallPath # Required for Get-DatabaseConnection
+    )
+    # Determine Database Path
+    if (-not $DatabasePath) {
+        $DatabasePath = Get-DefaultDatabasePath -InstallPath $InstallPath
+    }
+    
+    try {
+        $connection = Get-DatabaseConnection -DatabasePath $DatabasePath -InstallPath $InstallPath
+        
+        $command = $connection.CreateCommand()
+        $command.CommandText = "SELECT id, name, description, source_folder, include_extensions, exclude_folders, created_at, updated_at FROM collections WHERE name = @Name"
+        $null = $command.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@Name", $Name)))
         
         $reader = $command.ExecuteReader()
         
@@ -896,6 +967,7 @@ Export-ModuleMember -Function Initialize-SqliteEnvironment,
                               # Get-CollectionDatabasePath, # Removed
                               Get-Collections,
                               Get-Collection,
+                              Get-CollectionByName,
                               New-Collection,
                               Update-Collection,
                               Remove-Collection,
