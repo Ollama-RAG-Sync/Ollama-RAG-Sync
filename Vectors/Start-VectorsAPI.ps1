@@ -309,7 +309,7 @@ function Search-Documents {
 
         if ($results -ne $null) {
             Write-Log "Found $($results.Count) matching documents for query: $Query"
-            return @{ success = $true; results = ,$results; count = $results.Count; query = $Query }
+            return @{ success = $true; results = $results; count = $results.Count; query = $Query }
        }
        return @{ success = $true; results = @(); count = 0; query = $Query }
     }
@@ -472,7 +472,6 @@ try {
                 $returnContent = if ($null -ne $data.return_content) { $data.return_content } else { $false }
                 $whereFilter = if ($null -ne $data.filter) { $data.filter } else { @{} }
                 $result = Search-Documents -ChromaDbPath $using:chromaDbPath -OllamaUrl $using:ollamaUrl -EmbeddingModel $using:embeddingModel -Query $query -MaxResults $maxResults -MinScore $threshold -ReturnSourceContent $returnContent -WhereFilter $whereFilter
-                
 
                 if ($result.success) {
                     Write-PodeJsonResponse -Value $result

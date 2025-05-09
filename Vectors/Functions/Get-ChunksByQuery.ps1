@@ -65,4 +65,4 @@ if ($AggregateByDocument) {
 }
 
 $results = Query-VectorChunks @parameters
-$results
+return Write-Output -InputObject $results -NoEnumerate

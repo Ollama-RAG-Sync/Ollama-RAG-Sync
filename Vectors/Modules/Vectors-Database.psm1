@@ -141,7 +141,6 @@ except Exception as e:
     Query-VectorDocuments -QueryText "How to implement RAG?" -MaxResults 5
 #>
 function Query-VectorDocuments {
-    [CmdletBinding()]
     param (
         [Parameter(Mandatory=$true)]
         [string]$QueryText,
@@ -348,7 +347,7 @@ except Exception as e:
             if ($line -match "^SUCCESS:(.*)$") {
                 $successData = $Matches[1]
                 try {
-                    $queryResults = $successData | ConvertFrom-Json
+                    $queryResults = ConvertFrom-Json -InputObject $successData -NoEnumerate
                     Write-VectorsLog -Message "Found $($queryResults.Count) matching documents" -Level "Info"
                 }
                 catch {
@@ -365,53 +364,24 @@ except Exception as e:
             }
         }
         
-        # Clean up
-        if ($queryResults -ne $null)
-        {
-            $queryResults = ConvertTo-ArrayIfNot -InputObject $queryResults
-        }
-        else{
-            $queryResults = @()
-        }
-        Write-VectorsLog -Message "Query results $($queryResults | ConvertTo-Json -Depth 3)" -Level "Info"
         if (Test-Path -Path $tempPythonScript) {
             Remove-Item -Path $tempPythonScript -Force
         }
-        return $queryResults
+        
+        return Write-Output -NoEnumerate $queryResults
     }
     catch {
-        Write-VectorsLog -Message "Failed to execute query: $($_.Exception.Message)" -Level "Error"
+        $null = Write-VectorsLog -Message "Failed to execute query: $($_.Exception.Message)" -Level "Error"
         
         # Clean up
         if (Test-Path -Path $tempPythonScript) {
-            Remove-Item -Path $tempPythonScript -Force
+            $null = Remove-Item -Path $tempPythonScript -Force
         }
         
         return @()
     }
 }
-function ConvertTo-ArrayIfNot {
-    param(
-        [Parameter(Mandatory=$true)]
-        $InputObject
-    )
 
-    process {
-        if ($InputObject -is [array]) {
-            # Handle $null explicitly to ensure it's wrapped in an array,
-            # as ($null -is [array]) is False.
-            # @($null) creates an array with a single $null element.
-            return $InputObject
-        }
-        else {
-            # If it's not an array, wrap it in a new array.
-            # The @() operator ensures the output is an array.
-            # Alternatively, the unary comma operator could be used: ,$InputObject
-            # but @() is generally more robust for this purpose.
-            return @($InputObject)
-        }
-    }
-}
 <#
 .SYNOPSIS
     Performs a query against the document chunks vector collection
@@ -702,7 +672,7 @@ except Exception as e:
             if ($line -match "^SUCCESS:(.*)$") {
                 $successData = $Matches[1]
                 try {
-                    $queryResults = $successData | ConvertFrom-Json
+                    $queryResults = ConvertFrom-Json -InputObject $successData -NoEnumerate
                     if ($AggregateByDocument) {
                         Write-VectorsLog -Message "Found $($queryResults.Count) matching documents with relevant chunks" -Level "Info"
                     } else {
@@ -722,19 +692,8 @@ except Exception as e:
                 Write-VectorsLog -Message $infoData -Level "Debug"
             }
         }
-        
-        if ($queryResults -ne $null)
-        {
-            $queryResults = ConvertTo-ArrayIfNot -InputObject $queryResults
-        }
-        else{
-            $queryResults = @()
-        }
 
-        Write-Host "Query results: $($queryResults | ConvertTo-Json -Depth 3)"
-        # Clean up
         Remove-Item -Path $tempPythonScript -Force
-        
         return $queryResults
     }
     catch {

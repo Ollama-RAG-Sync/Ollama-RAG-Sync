@@ -62,5 +62,6 @@ if ($WhereFilter.Count -gt 0) {
 }
 
 $results = Query-VectorDocuments @parameters
+
 # Return the results
-$results
+return Write-Output -InputObject $results -NoEnumerate
