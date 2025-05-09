@@ -8,114 +8,6 @@ if (-not (Get-Module -Name "Vectors-Core")) {
 
 <#
 .SYNOPSIS
-    Initializes the ChromaDB collections
-.DESCRIPTION
-    Creates or verifies the ChromaDB collections for documents and chunks
-.EXAMPLE
-    Initialize-VectorDatabase
-#>
-function Initialize-VectorDatabase {
-    [CmdletBinding()]
-    param ()
-    
-    $config = Get-VectorsConfig
-    
-    # Use Python to initialize the database
-    $tempPythonScript = [System.IO.Path]::GetTempFileName() + ".py"
-
-    $pythonCode = @"
-import os
-import sys
-import chromadb
-from chromadb.config import Settings
-
-try:
-    # Create output directory if it doesn't exist
-    output_folder = r'$($config.ChromaDbPath)'
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
-        print(f"SUCCESS:Created ChromaDB directory: {output_folder}")
-    
-    # Setup ChromaDB client
-    chroma_client = chromadb.PersistentClient(
-        path=output_folder, 
-        settings=Settings(anonymized_telemetry=False)
-    )
-    
-    # Get or create document collection
-    doc_collection = chroma_client.get_or_create_collection(
-        name="document_collection",
-        metadata={
-            "hnsw:space": "cosine",
-            "hnsw:search_ef": 100
-        }
-    )
-    print(f"SUCCESS:Initialized document_collection")
-    
-    # Get or create chunks collection
-    chunks_collection = chroma_client.get_or_create_collection(
-        name="document_chunks_collection",
-        metadata={
-            "hnsw:space": "cosine",
-            "hnsw:search_ef": 100
-        }
-    )
-    print(f"SUCCESS:Initialized document_chunks_collection")
-    
-    # Count documents in collections
-    doc_count = doc_collection.count()
-    chunks_count = chunks_collection.count()
-    print(f"INFO:document_collection contains {doc_count} documents")
-    print(f"INFO:document_chunks_collection contains {chunks_count} chunks")
-    
-except Exception as e:
-    print(f"ERROR:{str(e)}")
-    sys.exit(1)
-"@
-
-    $pythonCode | Out-File -FilePath $tempPythonScript -Encoding utf8
-    Write-VectorsLog -Message "Initializing ChromaDB collections at $($config.ChromaDbPath)" -Level "Info"
-    
-    # Execute the Python script
-    try {
-        $results = python $tempPythonScript 2>&1
-        
-        # Process the output
-        foreach ($line in $results) {
-            if ($line -match "^SUCCESS:(.*)$") {
-                $successData = $Matches[1]
-                Write-VectorsLog -Message $successData -Level "Info"
-            }
-            elseif ($line -match "^ERROR:(.*)$") {
-                $errorData = $Matches[1]
-                Write-VectorsLog -Message "ChromaDB error: $errorData" -Level "Error"
-                return $false
-            }
-            elseif ($line -match "^INFO:(.*)$") {
-                $infoData = $Matches[1]
-                Write-VectorsLog -Message $infoData -Level "Info"
-            }
-        }
-        
-        # Clean up
-        Remove-Item -Path $tempPythonScript -Force
-        
-        return $true
-    }
-    catch {
-        Write-VectorsLog -Message "Failed to initialize vector database: $($_.Exception.Message)" -Level "Error"
-        
-        # Clean up
-        if (Test-Path -Path $tempPythonScript) {
-            Remove-Item -Path $tempPythonScript -Force
-        }
-        
-        return $false
-    }
-}
-
-<#
-.SYNOPSIS
     Gets information about the ChromaDB collections
 .DESCRIPTION
     Returns metadata and statistics about the ChromaDB collections
@@ -429,7 +321,7 @@ try:
                 
             processed_results.append({
                 "id": ids[i],
-                "document": documents[i][:1000] + ("..." if len(documents[i]) > 1000 else ""),  # Truncate long documents
+                "document": documents[i],  
                 "metadata": metadatas[i],
                 "similarity": similarity
             })
@@ -474,8 +366,17 @@ except Exception as e:
         }
         
         # Clean up
-        Remove-Item -Path $tempPythonScript -Force
-        
+        if ($queryResults -ne $null)
+        {
+            $queryResults = ConvertTo-ArrayIfNot -InputObject $queryResults
+        }
+        else{
+            $queryResults = @()
+        }
+        Write-VectorsLog -Message "Query results $($queryResults | ConvertTo-Json -Depth 3)" -Level "Info"
+        if (Test-Path -Path $tempPythonScript) {
+            Remove-Item -Path $tempPythonScript -Force
+        }
         return $queryResults
     }
     catch {
@@ -489,7 +390,28 @@ except Exception as e:
         return @()
     }
 }
+function ConvertTo-ArrayIfNot {
+    param(
+        [Parameter(Mandatory=$true)]
+        $InputObject
+    )
 
+    process {
+        if ($InputObject -is [array]) {
+            # Handle $null explicitly to ensure it's wrapped in an array,
+            # as ($null -is [array]) is False.
+            # @($null) creates an array with a single $null element.
+            return $InputObject
+        }
+        else {
+            # If it's not an array, wrap it in a new array.
+            # The @() operator ensures the output is an array.
+            # Alternatively, the unary comma operator could be used: ,$InputObject
+            # but @() is generally more robust for this purpose.
+            return @($InputObject)
+        }
+    }
+}
 <#
 .SYNOPSIS
     Performs a query against the document chunks vector collection
@@ -801,6 +723,15 @@ except Exception as e:
             }
         }
         
+        if ($queryResults -ne $null)
+        {
+            $queryResults = ConvertTo-ArrayIfNot -InputObject $queryResults
+        }
+        else{
+            $queryResults = @()
+        }
+
+        Write-Host "Query results: $($queryResults | ConvertTo-Json -Depth 3)"
         # Clean up
         Remove-Item -Path $tempPythonScript -Force
         
@@ -947,4 +878,4 @@ except Exception as e:
 }
 
 # Export functions
-Export-ModuleMember -Function Initialize-VectorDatabase, Get-VectorDatabaseInfo, Query-VectorDocuments, Query-VectorChunks, Remove-VectorDocument
+Export-ModuleMember -Function Get-VectorDatabaseInfo, Query-VectorDocuments, Query-VectorChunks, Remove-VectorDocument

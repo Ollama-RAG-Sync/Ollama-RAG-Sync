@@ -336,6 +336,7 @@ function Check-AllDllsExist {
 
 # Main execution
 try {
+
     # Check if all DLLs already exist and we're not forcing reinstall
     $allDllsExist = Check-AllDllsExist
     if ($allDllsExist -and -not $Force) {
@@ -365,6 +366,13 @@ try {
     if (Test-Path -Path $tempFolder) {
        $null = Remove-Item -Path $tempFolder -Recurse -Force -ErrorAction SilentlyContinue
     }
+
+    
+    # Create database
+    $scriptParentPath = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
+    $initScript = Join-Path -Path $scriptParentPath -ChildPath "Initialize-Database.ps1"
+    & $initScript -InstallPath $InstallPath
+
     
     # Report results
     if ($successCount -eq $totalPackages) {

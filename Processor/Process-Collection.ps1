@@ -19,7 +19,7 @@ param(
     [int]$ChunkSize = 1000,
 
     [Parameter(Mandatory=$false)]
-    [int]$ChunkOverlap = 200,
+    [int]$ChunkOverlap = 100,
 
     [Parameter(Mandatory=$false)]
     [switch]$Continuous = $false,
@@ -30,9 +30,9 @@ param(
     [Parameter(Mandatory=$false)]
     [string]$StopFileName = ".stop_processing", # File name to signal stop in continuous mode
 
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory=$false)]
     [ValidateSet("marker", "tesseract", "ocrmypdf", "pymupdf")]
-    [string]$OcrTool
+    [string]$OcrTool = "pymupdf"
 )
 
 # --- Logging Functions (from Processor-Logging.psm1) ---

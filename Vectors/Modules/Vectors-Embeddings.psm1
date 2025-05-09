@@ -45,6 +45,9 @@ function Get-DocumentEmbedding {
     # Use Python to generate embedding
     $tempPythonScript = [System.IO.Path]::GetTempFileName() + ".py"
 
+    $contentScript = [System.IO.Path]::GetTempFileName() + ".txt"
+    Set-Content -Path $contentScript -Value $Content -Encoding utf8
+
     $pythonCode = @"
 import sys
 import json
@@ -130,9 +133,10 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
         return None
 
 try:
-    # Read the document content from stdin
-    text = r'''$Content'''
-    
+    # Read the document content from file
+    with open(r'''$contentScript''', 'r', encoding='utf-8') as file:
+        # Example 1: Read the entire file content at once
+        text = file.read()
     # Skip empty input
     if not text or not text.strip():
         print("ERROR:Empty input")
@@ -144,13 +148,18 @@ try:
         model="$($config.EmbeddingModel)",
         base_url="$($config.OllamaUrl)"
     )
-    
+
     if embedding is None:
         print("ERROR:Failed to generate embedding")
         sys.exit(1)
     
+    result = {
+        "text": text,
+        "embedding": embedding            
+    }
+    
     # Return embedding as JSON
-    print(f"SUCCESS:{json.dumps(embedding)}")
+    print(f"SUCCESS:{json.dumps(result)}")
     
 except Exception as e:
     print(f"ERROR:{str(e)}")
@@ -259,6 +268,9 @@ function Get-ChunkEmbeddings {
         return $null
     }
     
+    $contentScript = [System.IO.Path]::GetTempFileName() + ".txt"
+    Set-Content -Path $contentScript -Value $Content -Encoding utf8
+
     # Use Python to chunk and generate embeddings
     $tempPythonScript = [System.IO.Path]::GetTempFileName() + ".py"
 
@@ -270,7 +282,7 @@ import urllib.request
 import urllib.error
 import unicodedata
 
-def chunk_text(text, chunk_size=1000, chunk_overlap=200):
+def chunk_text(text, chunk_size=1000, chunk_overlap=100):
     """
     Split a text into overlapping chunks of approximately equal size.
     Also tracks the start and end line numbers for each chunk.
@@ -442,13 +454,17 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
 
 try:
     # Get parameters
-    text = r'''$Content'''
     chunk_size = $ChunkSize
     chunk_overlap = $ChunkOverlap
     model_name = "$($config.EmbeddingModel)"
     api_url = "$($config.OllamaUrl)"
     source_path = "$FilePath"  # Empty for content-based
-    
+
+    # Read the document content from file
+    with open(r'''$contentScript''', 'r', encoding='utf-8') as file:
+        # Example 1: Read the entire file content at once
+        text = file.read()
+
     # Skip empty input
     if not text or not text.strip():
         print("ERROR:Empty input")
@@ -521,7 +537,8 @@ except Exception as e:
         
         # Clean up
         Remove-Item -Path $tempPythonScript -Force
-        
+        Remove-Item -Path $contentScript -Force
+
         return $chunkEmbeddings
     }
     catch {
@@ -584,14 +601,6 @@ function Add-DocumentToVectorStore {
         $ChunkOverlap = $config.ChunkOverlap
     }
     
-    # Initialize vector database
-        
-    $dbInitialized = Initialize-VectorDatabase
-    if (-not $dbInitialized) {
-        Write-VectorsLog -Message "Failed to initialize vector database" -Level "Error"
-        return $false
-    }
-    
     # Read content from file if using path
     if ($PSCmdlet.ParameterSetName -eq "ByPath") {
         $documentContent = Get-FileContent -FilePath $FilePath
@@ -645,6 +654,13 @@ function Add-DocumentToVectorStore {
     $docEmbeddingJson = $docEmbedding | ConvertTo-Json -Compress
     $chunkEmbeddingsJson = $chunkEmbeddings | ConvertTo-Json -Compress -Depth 10
 
+    $docEmbeddingJsonFile = [System.IO.Path]::GetTempFileName() + ".txt"
+    Set-Content -Path $docEmbeddingJsonFile -Value $docEmbeddingJson -Encoding utf8
+      
+    $chunkEmbeddingsJsonFile = [System.IO.Path]::GetTempFileName() + ".txt"
+    Set-Content -Path $chunkEmbeddingsJsonFile -Value $chunkEmbeddingsJson -Encoding utf8
+
+
     $pythonCode = @"
 import os
 import sys
@@ -658,9 +674,16 @@ def normalize_text(text):
     return normalized
 
 try:
+    # Read the document embedding and chunk embeddings from file
+    with open(r'''$docEmbeddingJsonFile''', 'r', encoding='utf-8') as file:
+        docEmbeddingJson = file.read()  
+
+    with open(r'''$chunkEmbeddingsJsonFile''', 'r', encoding='utf-8') as file:
+        chunkEmbeddingsJson = file.read()
+
     # Parse embeddings from JSON
-    document_embedding = json.loads(r'''$docEmbeddingJson''')
-    chunks_data = json.loads(r'''$chunkEmbeddingsJson''')
+    document_embedding = json.loads(docEmbeddingJson)
+    chunks_data = json.loads(chunkEmbeddingsJson)
     
     # Get paths and IDs
     source_path = r"$sourcePath"
@@ -702,8 +725,8 @@ try:
     
     # Add document to collection
     doc_collection.add(
-        documents=[normalize_text(chunks_data[0]["text"])],  # Use first chunk text
-        embeddings=[document_embedding],
+        documents=[normalize_text(document_embedding["text"])], 
+        embeddings=[document_embedding["embedding"]],
         metadatas=[{"source": source_path}],
         ids=[document_id]
     )
@@ -724,6 +747,7 @@ try:
         embeddings.append(chunk_data["embedding"])
         metadatas.append({
             "source": source_path,
+            "source_id": document_id,
             "chunk_id": chunk_id,
             "total_chunks": len(chunks_data),
             "start_line": chunk_data.get("start_line", 1),

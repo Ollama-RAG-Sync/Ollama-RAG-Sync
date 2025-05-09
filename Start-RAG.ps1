@@ -96,7 +96,7 @@ param (
     [Parameter(Mandatory = $false)]
     [int]$ChunkSize = 1000,
     [Parameter(Mandatory = $false)]
-    [int]$ChunkOverlap = 200,
+    [int]$ChunkOverlap = 100,
     [Parameter(Mandatory = $false)]
     [int]$FileTrackerPort = 10003,
     [Parameter(Mandatory = $false)]

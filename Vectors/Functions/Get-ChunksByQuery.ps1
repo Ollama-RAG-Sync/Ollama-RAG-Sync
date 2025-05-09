@@ -26,7 +26,6 @@ param(
     [Parameter(Mandatory=$false)]
     [string]$EmbeddingModel
 )
-
 # Initialize configuration with overrides
 $configOverrides = @{}
 
@@ -42,7 +41,7 @@ if ($EmbeddingModel) {
     $configOverrides.EmbeddingModel = $EmbeddingModel
 }
 
-Initialize-VectorsConfig -ConfigOverrides $configOverrides
+$null = Initialize-VectorsConfig -ConfigOverrides $configOverrides
 
 # Verify requirements
 if (-not (Test-VectorsRequirements)) {
@@ -66,6 +65,4 @@ if ($AggregateByDocument) {
 }
 
 $results = Query-VectorChunks @parameters
-
-# Return the results
 $results

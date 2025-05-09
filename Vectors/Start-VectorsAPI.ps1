@@ -22,7 +22,7 @@ param (
     [int]$DefaultChunkSize = 1000,
     
     [Parameter(Mandatory=$false)]
-    [int]$DefaultChunkOverlap = 200,
+    [int]$DefaultChunkOverlap = 100,
     
     [Parameter(Mandatory=$false)]
     [switch]$UseHttps, # Pode handles HTTPS via Start-PodeServer -Endpoint options
@@ -206,38 +206,52 @@ function Search-Chunks {
         [int]$MaxResults = 10,
         
         [Parameter(Mandatory=$false)]
-        [double]$MinScore = 0.0,
-        
-        [Parameter(Mandatory=$false)]
-        [hashtable]$WhereFilter = @{}
+        [double]$MinScore = 0.5,
+
+        [Parameter(Mandatory=$true)]
+        [string]$ChromaDbPath,
+                
+        [Parameter(Mandatory=$true)]
+        [string]$OllamaUrl,
+
+        [Parameter(Mandatory=$true)]
+        [string]$EmbeddingModel
     )
     
     try {
         Write-Log "Searching chunks for query: $Query"
-        
+
         # Set parameters for Get-ChunksByQuery.ps1
         $params = @{
             QueryText = $Query
             MaxResults = $MaxResults
             MinScore = $MinScore
-            ChromaDbPath = $using:chromaDbPath
-            OllamaUrl = $using:OllamaUrl
-            EmbeddingModel = $using:EmbeddingModel
+            ChromaDbPath = $ChromaDbPath
+            OllamaUrl = $OllamaUrl
+            EmbeddingModel = $EmbeddingModel
         }
-        
-        if ($WhereFilter.Count -gt 0) { $params.WhereFilter = $WhereFilter }
-        
+        if (($WhereFilter -ne $null) -and ($WhereFilter.Count -gt 0)) { $params.WhereFilter = $WhereFilter }
+
         # Call Get-ChunksByQuery.ps1
-        $searchScript = Join-Path -Path $using:functionsPath -ChildPath "Get-ChunksByQuery.ps1"
+        $searchScript = Join-Path -Path ".\Functions" -ChildPath "Get-ChunksByQuery.ps1"
         $results = & $searchScript @params
-        
-        if ($results -and $results.Count -gt 0) {
-            Write-Log "Found $($results.Count) matching chunks for query: $Query"
+
+        if ($results -is [array])
+        {
             return @{ success = $true; results = $results; count = $results.Count; query = $Query }
-        } else {
-            Write-Log "No matching chunks found for query: $Query" -Level "INFO"
-            return @{ success = $true; results = @(); count = 0; query = $Query }
         }
+        else
+        {
+            if ($result -ne $null)
+            {
+                return @{ success = $true; results = ,$results; count = $results.Count; query = $Query }
+            }
+            else {
+                Write-Log "No matching chunks found for query: $Query" -Level "INFO"
+                return @{ success = $true; results = @(); count = 0; query = $Query }
+            }
+        }
+
     }
     catch {
         Write-Log "Error searching chunks: $_" -Level "ERROR"
@@ -293,13 +307,11 @@ function Search-Documents {
         $searchScript = Join-Path -Path ".\Functions" -ChildPath "Get-DocumentsByQuery.ps1"
         $results = & $searchScript @params
 
-        if ($results -ne $null -and $results.Count -gt 0) {
+        if ($results -ne $null) {
             Write-Log "Found $($results.Count) matching documents for query: $Query"
             return @{ success = $true; results = ,$results; count = $results.Count; query = $Query }
-        } else {
-            Write-Log "No matching documents found for query: $Query" -Level "INFO"
-            return @{ success = $true; results = @(); count = 0; query = $Query }
-        }
+       }
+       return @{ success = $true; results = @(); count = 0; query = $Query }
     }
     catch {
         Write-Log "Error searching documents: $_" -Level "ERROR"
@@ -318,8 +330,6 @@ try {
     Import-Module "$modulesPath\Vectors-Database.psm1" -Force -Verbose
     Import-Module "$modulesPath\Vectors-Embeddings.psm1" -Force -Verbose
     
-    Initialize-VectorDatabase
-
     Write-Log "Starting Vectors API server using Pode..."
     Write-Log "ChromaDB Path: $ChromaDbPath"
     Write-Log "Ollama URL: $OllamaUrl"
@@ -427,8 +437,7 @@ try {
             try {
                 $data = $WebEvent.Data
                 if ($null -eq $data -or [string]::IsNullOrEmpty($data.query)) {
-                    Set-PodeResponseStatus -Code 400
-                    Write-PodeJsonResponse -Value @{ success = $false; error = "Bad request: Required parameter missing: query" }; return
+                    Write-PodeJsonResponse -StatusCode 400 -Value @{ success = $false; error = "Bad request: Required parameter missing: query" }; return
                 }
                 
                 $query = $data.query
@@ -436,13 +445,12 @@ try {
                 $threshold = if ($null -ne $data.threshold) { $data.threshold } else { 0.0 }
                 $whereFilter = if ($null -ne $data.filter) { $data.filter } else { @{} }
                 
-                $result = Search-Chunks -Query $query -MaxResults $maxResults -MinScore $threshold -WhereFilter $whereFilter
+                $result = Search-Chunks -ChromaDbPath $using:chromaDbPath -OllamaUrl $using:ollamaUrl -EmbeddingModel $using:embeddingModel -Query $query -MaxResults $maxResults -MinScore $threshold
                 
                 if ($result.success) {
                     Write-PodeJsonResponse -Value $result
                 } else {
-                    Set-PodeResponseStatus -Code 500
-                    Write-PodeJsonResponse -Value $result
+                    Write-PodeJsonResponse -StatusCode 500 -Value $result
                 }
             } catch {
                  Write-Log "Error in POST /api/search/chunks: $_" -Level "ERROR"
@@ -465,6 +473,7 @@ try {
                 $whereFilter = if ($null -ne $data.filter) { $data.filter } else { @{} }
                 $result = Search-Documents -ChromaDbPath $using:chromaDbPath -OllamaUrl $using:ollamaUrl -EmbeddingModel $using:embeddingModel -Query $query -MaxResults $maxResults -MinScore $threshold -ReturnSourceContent $returnContent -WhereFilter $whereFilter
                 
+
                 if ($result.success) {
                     Write-PodeJsonResponse -Value $result
                 } else {

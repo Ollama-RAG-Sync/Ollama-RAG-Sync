@@ -110,6 +110,13 @@ catch {
     exit 1
 }
 
+$intializeVectorDatabase = Join-Path -Path $scriptDirectory -ChildPath "Vectors\Functions\Initialize-VectorDatabase.ps1"
+$dbInitialized = & $intializeVectorDatabase -ChromaDbPath $vectorDbPath
+if (-not $dbInitialized) {
+    Write-VectorsLog -Message "Failed to initialize vector database" -Level "Error"
+    return $false
+}
+
 # Display summary and next steps
 Write-Log "RAG environment setup complete!" -Level "INFO"
 Write-Log "Summary:" -Level "INFO"

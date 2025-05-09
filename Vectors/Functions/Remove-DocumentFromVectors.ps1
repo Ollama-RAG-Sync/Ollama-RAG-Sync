@@ -49,9 +49,6 @@ if (-not (Test-VectorsRequirements)) {
     return
 }
 
-# Initialize vector database to make sure it exists
-Initialize-VectorDatabase | Out-Null
-
 # Remove document from vector store
 $parameters = @{}
 
