@@ -152,7 +152,10 @@ function Query-VectorDocuments {
         [double]$MinScore = 0.0,
         
         [Parameter(Mandatory=$false)]
-        [hashtable]$WhereFilter = @{}
+        [hashtable]$WhereFilter = @{},
+
+        [Parameter(Mandatory=$false)]
+        [switch]$ReturnSourceContent
     )
     
     $config = Get-VectorsConfig
@@ -257,6 +260,8 @@ try:
     # Parse parameters
     query_text = r"""$QueryText"""
     max_results = $MaxResults
+    return_documents = $ReturnSourceContent
+
     min_score = $MinScore
     where_filter = json.loads(r'''$whereFilterJson''')
     
@@ -320,7 +325,7 @@ try:
                 
             processed_results.append({
                 "id": ids[i],
-                "document": documents[i],  
+                "document": documents[i] if return_documents else None,
                 "metadata": metadatas[i],
                 "similarity": similarity
             })
@@ -334,7 +339,7 @@ except Exception as e:
 "@
 
     $pythonCode | Out-File -FilePath $tempPythonScript -Encoding utf8
-    
+
     Write-VectorsLog -Message "Querying document collection for: $($QueryText.Substring(0, [Math]::Min(50, $QueryText.Length)))..." -Level "Info"
     
     # Execute the Python script
@@ -659,7 +664,7 @@ except Exception as e:
 "@
 
     $pythonCode | Out-File -FilePath $tempPythonScript -Encoding utf8
-    
+
     Write-VectorsLog -Message "Querying document chunks for: $($QueryText.Substring(0, [Math]::Min(50, $QueryText.Length)))..." -Level "Info"
     
     # Execute the Python script
@@ -694,7 +699,7 @@ except Exception as e:
         }
 
         Remove-Item -Path $tempPythonScript -Force
-        return $queryResults
+        return Write-Output -InputObject $queryResults -NoEnumerate
     }
     catch {
         Write-VectorsLog -Message "Failed to execute query: $($_.Exception.Message)" -Level "Error"

@@ -206,7 +206,7 @@ function Search-Chunks {
         [int]$MaxResults = 10,
         
         [Parameter(Mandatory=$false)]
-        [double]$MinScore = 0.5,
+        [double]$MinScore = 0.0,
 
         [Parameter(Mandatory=$true)]
         [string]$ChromaDbPath,
@@ -215,7 +215,10 @@ function Search-Chunks {
         [string]$OllamaUrl,
 
         [Parameter(Mandatory=$true)]
-        [string]$EmbeddingModel
+        [string]$EmbeddingModel,
+
+        [Parameter(Mandatory=$false)]
+        [switch]$AggregateByDocument
     )
     
     try {
@@ -229,6 +232,7 @@ function Search-Chunks {
             ChromaDbPath = $ChromaDbPath
             OllamaUrl = $OllamaUrl
             EmbeddingModel = $EmbeddingModel
+            AggregateByDocument = $AggregateByDocument
         }
         if (($WhereFilter -ne $null) -and ($WhereFilter.Count -gt 0)) { $params.WhereFilter = $WhereFilter }
 
@@ -236,22 +240,15 @@ function Search-Chunks {
         $searchScript = Join-Path -Path ".\Functions" -ChildPath "Get-ChunksByQuery.ps1"
         $results = & $searchScript @params
 
-        if ($results -is [array])
+        if ($results -ne $null)
         {
             return @{ success = $true; results = $results; count = $results.Count; query = $Query }
         }
-        else
+        else 
         {
-            if ($result -ne $null)
-            {
-                return @{ success = $true; results = ,$results; count = $results.Count; query = $Query }
-            }
-            else {
-                Write-Log "No matching chunks found for query: $Query" -Level "INFO"
-                return @{ success = $true; results = @(); count = 0; query = $Query }
-            }
+            Write-Log "No matching chunks found for query: $Query" -Level "INFO"
+            return @{ success = $true; results = @(); count = 0; query = $Query }
         }
-
     }
     catch {
         Write-Log "Error searching chunks: $_" -Level "ERROR"
@@ -269,10 +266,10 @@ function Search-Documents {
         [int]$MaxResults = 10,
         
         [Parameter(Mandatory=$false)]
-        [double]$MinScore = 0.5,
+        [double]$MinScore = 0.0,
         
-        [Parameter(Mandatory=$false)]
-        [bool]$ReturnSourceContent = $false,
+        [Parameter(Mandatory=$true)]
+        [bool]$ReturnSourceContent = $true,
         
         [Parameter(Mandatory=$false)]
         [hashtable]$WhereFilter = @{},
@@ -443,15 +440,10 @@ try {
                 $query = $data.query
                 $maxResults = if ($null -ne $data.max_results) { $data.max_results } else { 10 }
                 $threshold = if ($null -ne $data.threshold) { $data.threshold } else { 0.0 }
-                $whereFilter = if ($null -ne $data.filter) { $data.filter } else { @{} }
+                $aggregateByDocument = if ($null -ne $data.aggregateByDocument) { $data.aggregateByDocument } else { $false }
+                $result = Search-Chunks -ChromaDbPath $using:chromaDbPath -OllamaUrl $using:ollamaUrl -EmbeddingModel $using:embeddingModel -Query $query -MaxResults $maxResults -MinScore $threshold -AggregateByDocument:$aggregateByDocument
                 
-                $result = Search-Chunks -ChromaDbPath $using:chromaDbPath -OllamaUrl $using:ollamaUrl -EmbeddingModel $using:embeddingModel -Query $query -MaxResults $maxResults -MinScore $threshold
-                
-                if ($result.success) {
-                    Write-PodeJsonResponse -Value $result
-                } else {
-                    Write-PodeJsonResponse -StatusCode 500 -Value $result
-                }
+                Write-PodeJsonResponse -Value $result
             } catch {
                  Write-Log "Error in POST /api/search/chunks: $_" -Level "ERROR"
                  Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }

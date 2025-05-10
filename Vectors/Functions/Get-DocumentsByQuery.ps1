@@ -9,7 +9,7 @@ param(
     [int]$MaxResults = 10,
     
     [Parameter(Mandatory=$false)]
-    [double]$MinScore = 0.5,
+    [double]$MinScore = 0.0,
     
     [Parameter(Mandatory=$false)]
     [hashtable]$WhereFilter = @{},
@@ -55,6 +55,7 @@ $parameters = @{
     QueryText = $QueryText
     MaxResults = $MaxResults
     MinScore = $MinScore
+    ReturnSourceContent = $ReturnSourceContent
 }
 
 if ($WhereFilter.Count -gt 0) {
