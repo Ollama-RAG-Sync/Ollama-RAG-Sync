@@ -1,7 +1,8 @@
+
 {
     "inputs": [],
     "servers": {
-        "LocalDocs": {
+        "LocalDocs2": {
             "type": "stdio",
             "command": "dotnet",
             "args": [

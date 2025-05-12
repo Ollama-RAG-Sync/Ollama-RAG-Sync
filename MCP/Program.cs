@@ -47,6 +47,12 @@ public class RequestData
 
     [JsonPropertyName("threshold")]
     public decimal Threshold { get; set; }
+
+    [JsonPropertyName("max_results")]
+    public int MaxResults { get; set; }
+
+    [JsonPropertyName("return_content")]
+    public bool ReturContent { get; set; }
 }
 public class DocumentResponseData
 {
@@ -120,24 +126,24 @@ internal static class HttpClientExt
 }
 
 [McpServerToolType]
-public static class EchoTool
+public static class MCPs
 {
     [McpServerTool(Name = "localDocumentsSearch"), Description("Finds the best local documents and chunks")]
-    public static string LocalDocumentsSearch(string prompt, HttpClient client, CancellationToken cancellationToken, [Description("Threashold of similarity of documents to return")] decimal threashold = 0.7m)
+    public static string LocalDocumentsSearch(string prompt, HttpClient client, CancellationToken cancellationToken, [Description("Threashold of similarity of documents to return")] decimal threshold = 0.6m, int maxResults = 5, bool returnDocument = true)
     {   
-        Debugger.Launch();
-        DocumentResponseData response = GetBestLocalDocument(prompt, client, threashold, cancellationToken);
-        ChunkResponseData responseChunk = GetBestLocalChunk(prompt, client, threashold, cancellationToken);
+        DocumentResponseData response = GetBestLocalDocument(prompt, client, threshold, maxResults, returnDocument, cancellationToken);
 
-        return JsonSerializer.Serialize(new { BestDocument = response, BestChunk = responseChunk.Results.FirstOrDefault() });
+        return JsonSerializer.Serialize(response);
     }
 
-    private static DocumentResponseData GetBestLocalDocument(string prompt, HttpClient client, decimal threashold, CancellationToken cancellationToken)
+    private static DocumentResponseData GetBestLocalDocument(string prompt, HttpClient client, decimal threashold, int maxResults, bool returnDocument, CancellationToken cancellationToken)
     {
         var requestData = new RequestData
         {
             Query = prompt,
-            Threshold = threashold
+            Threshold = threashold,
+            MaxResults = maxResults,
+            ReturContent = returnDocument
         };
         var urlItem = Environment.GetEnvironmentVariable("Ollama-RAG-Sync-ProxyUrl");
 
