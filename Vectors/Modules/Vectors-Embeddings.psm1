@@ -53,6 +53,7 @@ import sys
 import json
 import urllib.request
 import urllib.error
+import time
 
 def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:11434"):
     """
@@ -64,7 +65,7 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
         base_url (str): The base URL for Ollama API (default: "http://localhost:11434")
         
     Returns:
-        list: A list of embedding values
+        dict: A dictionary with "embedding" (list) and "duration" (float), or None if error.
     """
     url = f"{base_url}/api/embeddings"
     
@@ -85,57 +86,58 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
     # Create request
     req = urllib.request.Request(url, data=data_bytes, headers=headers, method="POST")
     
+    embedding = None
+    duration = 0.0
+    start_time = time.time()
+    
     # Send request and get response
     try:
         with urllib.request.urlopen(req) as response:
             response_text = response.read().decode('utf-8')
+            end_time = time.time()
+            duration = end_time - start_time
             
             # Parse JSON response
             try:
                 response_data = json.loads(response_text)
             except json.JSONDecodeError:
                 print(f"ERROR:Failed to parse JSON response: {response_text}")
-                return None
+                return {"embedding": None, "duration": duration} # Return duration of attempt
             
             # Handle different response formats
             if isinstance(response_data, dict):
-                # Standard format: {"embedding": [...]}
                 if 'embedding' in response_data:
-                    return response_data['embedding']
-                
-                # Alternative format: {"embeddings": [...]}
+                    embedding = response_data['embedding']
                 elif 'embeddings' in response_data:
-                    embeddings = response_data['embeddings']
-                    # Handle if embeddings is a list of lists
-                    if embeddings and isinstance(embeddings[0], list):
-                        return embeddings[0]  # Return first embedding
-                    return embeddings
-            
-            # Handle list format, e.g. [{...}, {...}]
+                    embeddings_val = response_data['embeddings']
+                    if embeddings_val and isinstance(embeddings_val[0], list):
+                        embedding = embeddings_val[0]
+                    else:
+                        embedding = embeddings_val
             elif isinstance(response_data, list) and response_data:
                 if isinstance(response_data[0], dict):
-                    # Try to find embeddings in the first item
                     first_item = response_data[0]
                     if 'embedding' in first_item:
-                        return first_item['embedding']
+                        embedding = first_item['embedding']
                     elif 'embeddings' in first_item:
-                        return first_item['embeddings']
-                # Maybe the response is directly a list of floats
+                        embedding = first_item['embeddings']
                 elif isinstance(response_data[0], (int, float)):
-                    return response_data
+                    embedding = response_data
             
-            # If we got here, we couldn't identify the embedding format
-            print(f"ERROR:Could not identify embedding format in response: {response_data}")
-            return None
+            if embedding is None:
+                print(f"ERROR:Could not identify embedding format in response: {response_data}")
+            
+            return {"embedding": embedding, "duration": duration}
             
     except urllib.error.URLError as e:
+        end_time = time.time()
+        duration = end_time - start_time
         print(f"ERROR:Error connecting to Ollama: {e}")
-        return None
+        return {"embedding": None, "duration": duration}
 
 try:
     # Read the document content from file
     with open(r'''$contentScript''', 'r', encoding='utf-8') as file:
-        # Example 1: Read the entire file content at once
         text = file.read()
     # Skip empty input
     if not text or not text.strip():
@@ -143,19 +145,20 @@ try:
         sys.exit(1)
     
     # Generate embedding
-    embedding = get_embedding_from_ollama(
+    embedding_data = get_embedding_from_ollama(
         text,
         model="$($config.EmbeddingModel)",
         base_url="$($config.OllamaUrl)"
     )
 
-    if embedding is None:
+    if embedding_data is None or embedding_data["embedding"] is None:
         print("ERROR:Failed to generate embedding")
         sys.exit(1)
     
     result = {
         "text": text,
-        "embedding": embedding            
+        "embedding": embedding_data["embedding"],
+        "duration": embedding_data["duration"] # Added duration
     }
     
     # Return embedding as JSON
@@ -281,6 +284,7 @@ import math
 import urllib.request
 import urllib.error
 import unicodedata
+import time
 
 def chunk_text(text, chunk_size=1000, chunk_overlap=100):
     """
@@ -384,7 +388,7 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
         base_url (str): The base URL for Ollama API (default: "http://localhost:11434")
         
     Returns:
-        list: A list of embedding values
+        dict: A dictionary with "embedding" (list) and "duration" (float), or None if error.
     """
     url = f"{base_url}/api/embeddings"
     
@@ -405,52 +409,54 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
     # Create request
     req = urllib.request.Request(url, data=data_bytes, headers=headers, method="POST")
     
+    embedding = None
+    duration = 0.0
+    start_time = time.time()
+    
     # Send request and get response
     try:
         with urllib.request.urlopen(req) as response:
             response_text = response.read().decode('utf-8')
+            end_time = time.time()
+            duration = end_time - start_time
             
             # Parse JSON response
             try:
                 response_data = json.loads(response_text)
             except json.JSONDecodeError:
                 print(f"ERROR:Failed to parse JSON response: {response_text}")
-                return None
+                return {"embedding": None, "duration": duration}
             
             # Handle different response formats
             if isinstance(response_data, dict):
-                # Standard format: {"embedding": [...]}
                 if 'embedding' in response_data:
-                    return response_data['embedding']
-                
-                # Alternative format: {"embeddings": [...]}
+                    embedding = response_data['embedding']
                 elif 'embeddings' in response_data:
-                    embeddings = response_data['embeddings']
-                    # Handle if embeddings is a list of lists
-                    if embeddings and isinstance(embeddings[0], list):
-                        return embeddings[0]  # Return first embedding
-                    return embeddings
-            
-            # Handle list format, e.g. [{...}, {...}]
+                    embeddings_val = response_data['embeddings']
+                    if embeddings_val and isinstance(embeddings_val[0], list):
+                        embedding = embeddings_val[0]
+                    else:
+                        embedding = embeddings_val
             elif isinstance(response_data, list) and response_data:
                 if isinstance(response_data[0], dict):
-                    # Try to find embeddings in the first item
                     first_item = response_data[0]
                     if 'embedding' in first_item:
-                        return first_item['embedding']
+                        embedding = first_item['embedding']
                     elif 'embeddings' in first_item:
-                        return first_item['embeddings']
-                # Maybe the response is directly a list of floats
+                        embedding = first_item['embeddings']
                 elif isinstance(response_data[0], (int, float)):
-                    return response_data
+                    embedding = response_data
             
-            # If we got here, we couldn't identify the embedding format
-            print(f"ERROR:Could not identify embedding format in response: {response_data}")
-            return None
+            if embedding is None:
+                print(f"ERROR:Could not identify embedding format in response: {response_data}")
+
+            return {"embedding": embedding, "duration": duration}
             
     except urllib.error.URLError as e:
+        end_time = time.time()
+        duration = end_time - start_time
         print(f"ERROR:Error connecting to Ollama: {e}")
-        return None
+        return {"embedding": None, "duration": duration}
 
 try:
     # Get parameters
@@ -462,7 +468,6 @@ try:
 
     # Read the document content from file
     with open(r'''$contentScript''', 'r', encoding='utf-8') as file:
-        # Example 1: Read the entire file content at once
         text = file.read()
 
     # Skip empty input
@@ -477,9 +482,9 @@ try:
     # Get embeddings for each chunk
     chunk_embeddings = []
     for i, chunk_data in enumerate(chunks):
-        print(f"INFO:Processing chunk {i+1}/{len(chunks)}")
-        embedding = get_embedding_from_ollama(chunk_data["text"], model_name, api_url)
-        if embedding is None:
+        embedding_result = get_embedding_from_ollama(chunk_data["text"], model_name, api_url)
+        
+        if embedding_result is None or embedding_result["embedding"] is None:
             print(f"ERROR:Failed to get embedding for chunk {i+1}")
             sys.exit(1)
         
@@ -488,7 +493,8 @@ try:
             'text': chunk_data["text"],
             'start_line': chunk_data["start_line"],
             'end_line': chunk_data["end_line"],
-            'embedding': embedding
+            'embedding': embedding_result["embedding"],
+            'duration': embedding_result["duration"]    # Added duration
         })
     
     # Return as JSON
@@ -700,34 +706,38 @@ try:
     )
     
     # Get collections
-    doc_collection = chroma_client.get_collection(name="document_collection")
-    chunks_collection = chroma_client.get_collection(name="document_chunks_collection")
+    doc_collection = chroma_client.get_or_create_collection(name="document_collection")
+    chunks_collection = chroma_client.get_or_create_collection(name="document_chunks_collection")
     
     # Remove any existing document with this ID or source path
     try:
         doc_collection.delete(ids=[document_id])
         print(f"INFO:Removed existing document with ID: {document_id}")
     except:
-        pass  # Ignore errors if document doesn't exist
+        pass 
     
     try:
         doc_collection.delete(where={"source": source_path})
         print(f"INFO:Removed existing document with source: {source_path}")
     except:
-        pass  # Ignore errors if document doesn't exist
+        pass
     
     # Remove any existing chunks for this document
     try:
         chunks_collection.delete(where={"source": source_path})
         print(f"INFO:Removed existing chunks for source: {source_path}")
     except:
-        pass  # Ignore errors if chunks don't exist
+        pass
     
     # Add document to collection
+    doc_metadata = {"source": source_path}
+    if "duration" in document_embedding:
+        doc_metadata["duration"] = document_embedding["duration"]
+
     doc_collection.add(
         documents=[normalize_text(document_embedding["text"])], 
         embeddings=[document_embedding["embedding"]],
-        metadatas=[{"source": source_path}],
+        metadatas=[doc_metadata], # Updated metadata
         ids=[document_id]
     )
     print(f"SUCCESS:Added document to vector store with ID: {document_id}")
@@ -742,10 +752,7 @@ try:
         chunk_id = chunk_data["chunk_id"]
         doc_id = f"{document_id}_chunk_{chunk_id}"
         
-        # Add to batch
-        documents.append(normalize_text(chunk_data["text"]))
-        embeddings.append(chunk_data["embedding"])
-        metadatas.append({
+        chunk_metadata = {
             "source": source_path,
             "source_id": document_id,
             "chunk_id": chunk_id,
@@ -753,17 +760,26 @@ try:
             "start_line": chunk_data.get("start_line", 1),
             "end_line": chunk_data.get("end_line", 1),
             "line_range": f"{chunk_data.get('start_line', 1)}-{chunk_data.get('end_line', 1)}"
-        })
+        }
+        if "duration" in chunk_data:
+            chunk_metadata["duration"] = chunk_data["duration"]
+        
+        documents.append(normalize_text(chunk_data["text"]))
+        embeddings.append(chunk_data["embedding"])
+        metadatas.append(chunk_metadata) # Updated metadata
         ids.append(doc_id)
     
     # Add all chunks to collection
-    chunks_collection.add(
-        documents=documents,
-        embeddings=embeddings,
-        metadatas=metadatas,
-        ids=ids
-    )
-    print(f"SUCCESS:Added {len(chunks_data)} chunks to vector store")
+    if documents: # Ensure there's something to add
+        chunks_collection.add(
+            documents=documents,
+            embeddings=embeddings,
+            metadatas=metadatas,
+            ids=ids
+        )
+        print(f"SUCCESS:Added {len(chunks_data)} chunks to vector store")
+    else:
+        print(f"INFO:No chunks to add for document ID: {document_id}")
     
 except Exception as e:
     print(f"ERROR:{str(e)}")
