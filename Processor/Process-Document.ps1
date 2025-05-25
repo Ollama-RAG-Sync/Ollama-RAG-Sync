@@ -9,6 +9,7 @@
 # The script checks if the file is dirty (needs processing) and throws an exception if not,
 # unless the -Force parameter is used to skip the dirty check.
 
+[CmdletBinding(DefaultParameterSetName = "ById")]
 param(
     [Parameter(Mandatory=$true, ParameterSetName="ById")]
     [int]$FileId,
@@ -20,16 +21,14 @@ param(
     [string]$InstallPath,
 
     [Parameter(Mandatory=$false)]
-    [string]$VectorsApiUrl = "http://localhost:10001",
-
-    [Parameter(Mandatory=$false)]
+    [string]$VectorsApiUrl = "http://localhost:10001",    [Parameter(Mandatory=$false)]
     [string]$FileTrackerApiUrl = "http://localhost:10003/api",
 
     [Parameter(Mandatory=$false)]
-    [int]$ChunkSize = 1000,
+    [int]$ChunkSize = 20,  # Number of lines per chunk
 
     [Parameter(Mandatory=$false)]
-    [int]$ChunkOverlap = 100,
+    [int]$ChunkOverlap = 3,  # Number of lines to overlap between chunks
 
     [Parameter(Mandatory=$false)]
     [ValidateSet("marker", "tesseract", "ocrmypdf", "pymupdf")]
@@ -95,45 +94,33 @@ function Get-FileById {
     )
 
     try {
-        # First, get all collections to find which collection contains this file
-        $collectionsUri = "$FileTrackerBaseUrl/collections"
-        & $WriteLog "Fetching collections from $collectionsUri" -Level "DEBUG"
-        $collectionsResponse = Invoke-RestMethod -Uri $collectionsUri -Method Get
+        # Use the direct file metadata endpoint
+        $fileUri = "$FileTrackerBaseUrl/files/$FileId/metadata"
+        & $WriteLog "Fetching file metadata from $fileUri" -Level "DEBUG"
+        
+        $response = Invoke-RestMethod -Uri $fileUri -Method Get
 
-        if (-not $collectionsResponse.success) {
-            & $WriteLog "Error fetching collections: $($collectionsResponse.error)" -Level "ERROR"
+        if ($response.success) {
+            & $WriteLog "Found file ID $($FileId): $($response.file_path)" -Level "INFO"
+            & $WriteLog " with collection ID: $($response.collection_id)" -Level "INFO"
+            & $WriteLog " with collection mame: $($response.collection_name)" -Level "INFO"
+            & $WriteLog " with path: $($response.file_path)" -Level "INFO"
+
+            $file = [PSCustomObject]@{
+                Id = $response.file_id
+                FilePath = $response.file_path
+                CollectionId = $response.collection_id
+                CollectionName = $response.collection_name
+            }
+            
+            return $file
+        } else {
+            & $WriteLog "Error fetching file metadata: $($response.error)" -Level "ERROR"
             return $null
         }
-
-        # Search through collections to find the file
-        foreach ($collection in $collectionsResponse.collections) {
-            try {
-                $filesUri = "$FileTrackerBaseUrl/collections/$($collection.id)/files"
-                & $WriteLog "Searching for file ID $FileId in collection $($collection.name) (ID: $($collection.id))" -Level "DEBUG"
-                $filesResponse = Invoke-RestMethod -Uri $filesUri -Method Get
-
-                if ($filesResponse.success) {
-                    $file = $filesResponse.files | Where-Object { $_.id -eq $FileId }
-                    if ($file) {
-                        & $WriteLog "Found file ID $FileId in collection $($collection.name): $($file.FilePath)" -Level "INFO"
-                        # Add collection information to the file object
-                        $file | Add-Member -NotePropertyName "CollectionName" -NotePropertyValue $collection.name
-                        $file | Add-Member -NotePropertyName "CollectionId" -NotePropertyValue $collection.id
-                        return $file
-                    }
-                }
-            }
-            catch {
-                & $WriteLog "Error searching collection $($collection.id): $_" -Level "WARNING"
-                continue
-            }
-        }
-
-        & $WriteLog "File with ID $FileId not found in any collection" -Level "ERROR"
-        return $null
     }
     catch {
-        & $WriteLog "Error calling FileTracker API to find file by ID $FileId : $_" -Level "ERROR"
+        & $WriteLog "Error calling FileTracker API to get file by ID $($FileId): $_" -Level "ERROR"
         return $null
     }
 }
@@ -459,7 +446,8 @@ function Invoke-DocumentProcessing {
     }
 
     # Add document to Vectors
-    $success = Add-DocumentToVectors -FileInfo $FileInfo -OcrTool $OcrTool    if ($success) {
+    $success = Add-DocumentToVectors -FileInfo $FileInfo -OcrTool $OcrTool    
+    if ($success) {
         # Mark file as processed in FileTracker
         $markProcessed = Set-FileProcessedStatus -CollectionId $collectionId -FileId $fileId -FileTrackerBaseUrl $FileTrackerApiUrl
 
@@ -489,8 +477,8 @@ try {
     
     & $WriteLog "Log file: $script:LogFilePath"
     & $WriteLog "FileTracker API: $FileTrackerApiUrl"
-    & $WriteLog "Vectors API: $VectorsApiUrl"
-    & $WriteLog "Chunk Size: $ChunkSize, Overlap: $ChunkOverlap"
+    & $WriteLog "Vectors API: $VectorsApiUrl"    
+    & $WriteLog "Lines per chunk: $ChunkSize, Line overlap: $ChunkOverlap"
     & $WriteLog "OCR Tool: $OcrTool"
     & $WriteLog "Force mode: $($Force.IsPresent)"
 

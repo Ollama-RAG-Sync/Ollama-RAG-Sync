@@ -578,7 +578,7 @@ try {
     & $WriteLog "Log file: $script:LogFilePath"
     & $WriteLog "FileTracker API: $FileTrackerApiUrl"
     & $WriteLog "Vectors API: $VectorsApiUrl"
-    & $WriteLog "Chunk Size: $ChunkSize, Overlap: $ChunkOverlap"
+    & $WriteLog "Lines per chunk: $ChunkSize, Line overlap: $ChunkOverlap"
 
     # If running in continuous mode, set up a loop
     if ($Continuous) {

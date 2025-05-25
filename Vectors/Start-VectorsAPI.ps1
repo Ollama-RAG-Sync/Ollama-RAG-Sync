@@ -17,12 +17,11 @@ param (
     
     [Parameter(Mandatory=$false)]
     [string]$EmbeddingModel = "mxbai-embed-large:latest",
+    [Parameter(Mandatory=$false)]
+    [int]$DefaultChunkSize = 20,  # Number of lines per chunk
     
     [Parameter(Mandatory=$false)]
-    [int]$DefaultChunkSize = 1000,
-    
-    [Parameter(Mandatory=$false)]
-    [int]$DefaultChunkOverlap = 100,
+    [int]$DefaultChunkOverlap = 2,  # Number of lines to overlap between chunks
     
     [Parameter(Mandatory=$false)]
     [switch]$UseHttps, # Pode handles HTTPS via Start-PodeServer -Endpoint options

@@ -47,6 +47,7 @@ function Get-DocumentEmbedding {
 
     $contentScript = [System.IO.Path]::GetTempFileName() + ".txt"
     Set-Content -Path $contentScript -Value $Content -Encoding utf8
+    $lines = (Get-Content -Path  $contentScript).Count
 
     $pythonCode = @"
 import sys
@@ -228,11 +229,11 @@ except Exception as e:
 .PARAMETER Content
     Document content (alternative to FilePath)
 .PARAMETER ChunkSize
-    Size of each chunk in characters
+    Number of lines per chunk
 .PARAMETER ChunkOverlap
-    Number of characters to overlap between chunks
+    Number of lines to overlap between chunks
 .EXAMPLE
-    Get-ChunkEmbeddings -FilePath "path/to/document.md" -ChunkSize 500 -ChunkOverlap 100
+    Get-ChunkEmbeddings -FilePath "path/to/document.md" -ChunkSize 20 -ChunkOverlap 2
 #>
 function Get-ChunkEmbeddings {
     [CmdletBinding()]
@@ -275,7 +276,7 @@ function Get-ChunkEmbeddings {
     
     $contentScript = [System.IO.Path]::GetTempFileName() + ".txt"
     Set-Content -Path $contentScript -Value $Content -Encoding utf8
-
+    $lines = (Get-Content -Path $contentScript).Count
     # Use Python to chunk and generate embeddings
     $tempPythonScript = [System.IO.Path]::GetTempFileName() + ".py"
 
@@ -289,15 +290,15 @@ import unicodedata
 import time
 import datetime
 
-def chunk_text(text, chunk_size=1000, chunk_overlap=100):
+def chunk_text(text, chunk_size=20, chunk_overlap=2):
     """
-    Split a text into overlapping chunks of approximately equal size.
-    Also tracks the start and end line numbers for each chunk.
+    Split a text into chunks by fixed number of lines.
+    Each chunk contains exactly chunk_size lines, except the last chunk which contains remaining lines.
     
     Args:
         text (str): The text to split into chunks
-        chunk_size (int): The target size for each chunk
-        chunk_overlap (int): The amount of overlap between chunks
+        chunk_size (int): The number of lines per chunk (default: 20)
+        chunk_overlap (int): The number of lines to overlap between chunks (default: 0)
         
     Returns:
         list: A list of dictionaries containing:
@@ -305,79 +306,45 @@ def chunk_text(text, chunk_size=1000, chunk_overlap=100):
             - start_line: The starting line number (1-based)
             - end_line: The ending line number (1-based)
     """
-    # Handle empty or very small texts
-    if not text or len(text) <= chunk_size:
-        return [{"text": text, "start_line": 1, "end_line": text.count('\n') + 1}]
+    # Handle empty text
+    if not text or not text.strip():
+        return [{"text": text, "start_line": 1, "end_line": 1}]
     
-    # Split text by newlines and track line numbers
+    # Split text by newlines
     lines = text.split('\n')
+    total_lines = len(lines)
+    
+    # Handle case where text has fewer lines than chunk_size
+    if total_lines <= chunk_size:
+        return [{"text": text, "start_line": 1, "end_line": total_lines}]
+    
     chunks = []
-    current_chunk = ""
-    current_start_line = 1  # 1-based line numbering
-    current_end_line = 1
-    line_counter = 1
+    current_line_index = 0
     
-    for line in lines:
-        # If we're starting a new chunk, record the starting line number
-        if not current_chunk:
-            current_start_line = line_counter
+    while current_line_index < total_lines:
+        # Calculate the end index for this chunk
+        end_line_index = min(current_line_index + chunk_size, total_lines)
         
-        # If the line itself is larger than chunk_size, split it by words
-        if len(line) > chunk_size:
-            words = line.split(' ')
-            for word in words:
-                if len(current_chunk) + len(word) + 1 > chunk_size:
-                    # Current chunk is full, add it to chunks with line info
-                    chunks.append({
-                        "text": current_chunk,
-                        "start_line": current_start_line,
-                        "end_line": current_end_line
-                    })
-                    
-                    # Start new chunk with overlap
-                    overlap_start = max(0, len(current_chunk) - chunk_overlap)
-                    current_chunk = current_chunk[overlap_start:] + " " + word
-                    # Line stays the same since we're splitting within a line
-                    current_start_line = current_end_line
-                else:
-                    # Add word to current chunk
-                    if current_chunk:
-                        current_chunk += " " + word
-                    else:
-                        current_chunk = word
-        else:
-            # If adding this line would make the chunk too large, start a new chunk
-            if len(current_chunk) + len(line) + 1 > chunk_size:
-                # Store current chunk with line info
-                chunks.append({
-                    "text": current_chunk,
-                    "start_line": current_start_line,
-                    "end_line": current_end_line
-                })
-                
-                # Start new chunk with overlap
-                overlap_start = max(0, len(current_chunk) - chunk_overlap)
-                current_chunk = current_chunk[overlap_start:] + "\n" + line
-                # New chunk starts from the previous chunk's end line
-                current_start_line = current_end_line
-            else:
-                # Add line to current chunk
-                if current_chunk:
-                    current_chunk += "\n" + line
-                else:
-                    current_chunk = line
+        # Extract lines for this chunk
+        chunk_lines = lines[current_line_index:end_line_index]
+        chunk_text = '\n'.join(chunk_lines)
         
-        # Update current end line after processing this line
-        current_end_line = line_counter
-        line_counter += 1
-    
-    # Add the last chunk if it's not empty
-    if current_chunk:
-        chunks.append({
-            "text": current_chunk,
-            "start_line": current_start_line,
-            "end_line": current_end_line
-        })
+        # Create chunk info (1-based line numbering)
+        chunk_info = {
+            "text": chunk_text,
+            "start_line": current_line_index + 1,
+            "end_line": end_line_index
+        }
+        
+        chunks.append(chunk_info)
+        
+        # Move to next chunk position, accounting for overlap
+        # If this is the last chunk (end_line_index == total_lines), break to avoid infinite loop
+        if end_line_index == total_lines:
+            break
+            
+        # Move forward by chunk_size minus overlap
+        current_line_index += max(1, chunk_size - chunk_overlap)
     
     return chunks
 
@@ -517,8 +484,9 @@ except Exception as e:
         Write-VectorsLog -Message "Generating chunk embeddings for document content" -Level "Info"
     }
     
-    Write-VectorsLog -Message "Chunk size: $ChunkSize, Chunk overlap: $ChunkOverlap" -Level "Debug"
-    
+    Write-VectorsLog -Message "Lines per chunk: $ChunkSize, Line overlap: $ChunkOverlap" -Level "Debug"
+    Write-VectorsLog -Message "Estimated number of chunks: $($lines / $ChunkSize)" -Level "Debug"
+
     # Execute the Python script
     try {
         $results = python $tempPythonScript 2>&1
@@ -573,9 +541,9 @@ except Exception as e:
 .PARAMETER Content
     Document content (alternative to FilePath)
 .PARAMETER ChunkSize
-    Size of each chunk in characters
+    Number of lines per chunk
 .PARAMETER ChunkOverlap
-    Number of characters to overlap between chunks
+    Number of lines to overlap between chunks
 .EXAMPLE
     Add-DocumentToVectorStore -FilePath "path/to/document.md"
 #>
@@ -592,10 +560,10 @@ function Add-DocumentToVectorStore {
         [string]$ContentId,
         
         [Parameter(Mandatory=$false)]
-        [int]$ChunkSize = 0,
+        [int]$ChunkSize = 20,
         
         [Parameter(Mandatory=$false)]
-        [int]$ChunkOverlap = 0
+        [int]$ChunkOverlap = 2
     )
     
     $config = Get-VectorsConfig

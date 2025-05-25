@@ -12,8 +12,8 @@ $script:ModuleVersion = "1.0.0"
 $script:DefaultConfig = @{
     OllamaUrl = "http://localhost:11434"
     EmbeddingModel = "mxbai-embed-large:latest"
-    ChunkSize = 1000
-    ChunkOverlap = 200
+    ChunkSize = 20  # Number of lines per chunk
+    ChunkOverlap = 2  # Number of lines to overlap between chunks
     SupportedExtensions = ".txt,.md,.html,.csv,.json"
     LogLevel = "Info"  # Debug, Info, Warning, Error
 }
@@ -29,7 +29,7 @@ $script:Config = $script:DefaultConfig.Clone()
 .PARAMETER ConfigOverrides
     A hashtable containing configuration values to override defaults
 .EXAMPLE
-    Initialize-VectorsConfig -ConfigOverrides @{ ChunkSize = 500; ChunkOverlap = 100 }
+    Initialize-VectorsConfig -ConfigOverrides @{ ChunkSize = 25; ChunkOverlap = 2 }
 #>
 function Initialize-VectorsConfig {
     [CmdletBinding()]
