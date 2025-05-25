@@ -125,6 +125,12 @@ function Write-VectorsLog {
             Write-Host $formattedMessage -ForegroundColor $color
         }
     }
+
+    if ($null -ne $Env:vectorLogFilePath)
+    {
+        $logEntry = "$($timestamp) [$Level] - $($Message.ToString())`r`n"
+        Add-Content -Path $Env:vectorLogFilePath -Value $logEntry
+    }
 }
 
 <#

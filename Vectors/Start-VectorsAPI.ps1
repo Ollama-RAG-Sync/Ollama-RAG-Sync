@@ -43,12 +43,13 @@ param (
  $TempDir = Join-Path -Path $InstallPath -ChildPath "Temp"
  if (-not (Test-Path -Path $TempDir)) 
  { 
-     New-Item -Path $TempDir -ItemType Directory -Force | Out-Null 
+    New-Item -Path $TempDir -ItemType Directory -Force | Out-Null 
  }
 
  $logDate = Get-Date -Format "yyyy-MM-dd"
  $logFileName = "Vectors_$logDate.log"
  $logFilePath = Join-Path -Path $TempDir -ChildPath "$logFileName"
+ $Env:vectorLogFilePath = $logFilePath
 
 function Write-Log {
     param (
@@ -71,6 +72,11 @@ function Write-Log {
     }
     else {
         Write-Host $logMessage -ForegroundColor Green # Default to Green
+    }
+
+    if ($null -ne $Env:vectorLogFilePath) {
+        $logMessage = "$($timestamp) [$Level] - $($Message.ToString())`r`n"
+        Add-Content -Path $Env:vectorLogFilePath -Value $logMessage 
     }
 }
 
@@ -135,7 +141,7 @@ function Add-Document {
         $result = & $addDocumentScript @params
         
         if ($result) {
-            Write-Log "Successfully added document to vectors: $FilePath"
+            Write-Log "Successfully added document to vectors: $FilePath" 
             return @{ success = $true; message = "Document added successfully"; filePath = $FilePath; fileId = $FileId }
         } else {
             Write-Log "Failed to add document to vectors: $FilePath" -Level "ERROR"
@@ -143,7 +149,7 @@ function Add-Document {
         }
     }
     catch {
-        Write-Log "Error adding document to vectors: $_ $($_.ScriptStackTrace)" -Level "ERROR" # Removed ScriptStackTrace for brevity
+        Write-Log "Error adding document to vectors: $_ $($_.ScriptStackTrace)" -Level "ERROR"
         return @{ success = $false; error = $_.ToString(); filePath = $FilePath; fileId = $FileId }
     }
 }
@@ -159,7 +165,7 @@ function Remove-Document {
     )
     
     try {
-        Write-Log "Removing document from vectors: $FilePath (ID: $FileId)"
+        Write-Log "Removing document from vectors: $FilePath (ID: $FileId)"  
         
         # Set parameters for Remove-DocumentFromVectors.ps1
         $params = @{
@@ -174,10 +180,10 @@ function Remove-Document {
         $result = & $removeDocumentScript @params
         
         if ($result) {
-            Write-Log "Successfully removed document from vectors: $FilePath"
+            Write-Log "Successfully removed document from vectors: $FilePath"  
             return @{ success = $true; message = "Document removed successfully"; filePath = $FilePath; fileId = $FileId }
         } else {
-            Write-Log "Failed to remove document from vectors: $FilePath" -Level "ERROR"
+            Write-Log "Failed to remove document from vectors: $FilePath" -Level "ERROR"  
             # Check if the error was 'not found' vs other failure
             if ($_.Exception.Message -like "*No vectors found for file*") {
                  return @{ success = $false; error = "Document not found in vectors"; filePath = $FilePath; fileId = $FileId; notFound = $true }
@@ -187,7 +193,7 @@ function Remove-Document {
         }
     }
     catch {
-        Write-Log "Error removing document from vectors: $_" -Level "ERROR"
+        Write-Log "Error removing document from vectors: $_" -Level "ERROR"  
          if ($_.Exception.Message -like "*No vectors found for file*") {
              return @{ success = $false; error = "Document not found in vectors: $($_.Exception.Message)"; filePath = $FilePath; fileId = $FileId; notFound = $true }
          } else {
@@ -222,7 +228,7 @@ function Search-Chunks {
     )
     
     try {
-        Write-Log "Searching chunks for query: $Query"
+        Write-Log "Searching chunks for query: $Query"  
 
         # Set parameters for Get-ChunksByQuery.ps1
         $params = @{
@@ -246,12 +252,12 @@ function Search-Chunks {
         }
         else 
         {
-            Write-Log "No matching chunks found for query: $Query" -Level "INFO"
+            Write-Log "No matching chunks found for query: $Query" -Level "INFO"  
             return @{ success = $true; results = @(); count = 0; query = $Query }
         }
     }
     catch {
-        Write-Log "Error searching chunks: $_" -Level "ERROR"
+        Write-Log "Error searching chunks: $_" -Level "ERROR"    
         return @{ success = $false; error = $_.ToString(); results = @(); count = 0; query = $Query }
     }
 }
@@ -285,7 +291,7 @@ function Search-Documents {
     )
     
     try {
-        Write-Log "Searching documents for query: $Query"
+        Write-Log "Searching documents for query: $Query"  
         
         # Set parameters for Get-DocumentsByQuery.ps1
         $params = @{
@@ -304,14 +310,14 @@ function Search-Documents {
         $searchScript = Join-Path -Path ".\Functions" -ChildPath "Get-DocumentsByQuery.ps1"
         $results = & $searchScript @params
 
-        if ($results -ne $null) {
-            Write-Log "Found $($results.Count) matching documents for query: $Query"
+        if ($null -ne $results) {
+            Write-Log "Found $($results.Count) matching documents for query: $Query"  
             return @{ success = $true; results = $results; count = $results.Count; query = $Query }
        }
        return @{ success = $true; results = @(); count = 0; query = $Query }
     }
     catch {
-        Write-Log "Error searching documents: $_" -Level "ERROR"
+        Write-Log "Error searching documents: $_" -Level "ERROR"  
         return @{ success = $false; error = $_.ToString(); results = @(); count = 0; query = $Query }
     }
 }
@@ -322,15 +328,15 @@ try {
     $modulesPath = Join-Path -Path $scriptsPath -ChildPath "Modules"
     $functionsPath = Join-Path -Path $scriptsPath -ChildPath "Functions"
     
-    Write-Log "Importing modules..."
+    Write-Log "Importing modules..."  
     Import-Module "$modulesPath\Vectors-Core.psm1" -Force -Verbose
     Import-Module "$modulesPath\Vectors-Database.psm1" -Force -Verbose
     Import-Module "$modulesPath\Vectors-Embeddings.psm1" -Force -Verbose
     
-    Write-Log "Starting Vectors API server using Pode..."
-    Write-Log "ChromaDB Path: $ChromaDbPath"
-    Write-Log "Ollama URL: $OllamaUrl"
-    Write-Log "Embedding model: $EmbeddingModel"
+    Write-Log "Starting Vectors API server using Pode..."  
+    Write-Log "ChromaDB Path: $ChromaDbPath"  
+    Write-Log "Ollama URL: $OllamaUrl"  
+    Write-Log "Embedding model: $EmbeddingModel"  
 
     Start-PodeServer -Threads 4 {
 
@@ -390,7 +396,7 @@ try {
                 $ollamaUrl = $using:OllamaUrl
                 $embeddingModel = $using:EmbeddingModel
 
-                $result = Add-Document -ChromaDbPath $chromaDbPath -OllamaUrl $ollamaUrl -Embedding $embeddingModel -FilePath $filePath -FileId $fileId -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -ContentType $contentType
+                $result = Add-Document -ChromaDbPath $chromaDbPath -OllamaUrl $ollamaUrl -Embedding $embeddingModel -FilePath $filePath -FileId $fileId -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -ContentType $contentType  
                 
                 if ($result.success) {
                     Write-PodeJsonResponse -Value $result
@@ -398,7 +404,7 @@ try {
                     Write-PodeJsonResponse -StatusCode 500 -Value $result
                 }
             } catch {
-                 Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+                 Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception)" }
             }
         }
 
@@ -424,7 +430,7 @@ try {
                     Write-PodeJsonResponse -StatusCode 500 -Value $result
                 }
             } catch {
-                 Write-Log "Error in DELETE /documents: $_" -Level "ERROR"
+                 Write-Log "Error in DELETE /documents: $_" -Level "ERROR"  
                  Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
         }
@@ -445,7 +451,7 @@ try {
                 
                 Write-PodeJsonResponse -Value $result
             } catch {
-                 Write-Log "Error in POST /api/search/chunks: $_" -Level "ERROR"
+                 Write-Log "Error in POST /api/search/chunks: $_" -Level "ERROR"  
                  Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
         }
@@ -471,18 +477,18 @@ try {
                     Write-PodeJsonResponse -StatusCode 500 -Value $result
                 }
             } catch {
-                 Write-Log "Error in POST /api/search/documents: $_" -Level "ERROR"
+                 Write-Log "Error in POST /api/search/documents: $_" -Level "ERROR"  
                  Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
         }
     }
 
-    Write-Log "Vectors API server running at $($endpointParams.Protocol)://$($endpointParams.Address):$($endpointParams.Port)"
-    Write-Log "Swagger UI available at $($endpointParams.Protocol)://$($endpointParams.Address):$($endpointParams.Port)/swagger"
+    Write-Log "Vectors API server running at $($endpointParams.Protocol)://$($endpointParams.Address):$($endpointParams.Port)"  
+    Write-Log "Swagger UI available at $($endpointParams.Protocol)://$($endpointParams.Address):$($endpointParams.Port)/swagger"  
     Write-Log "Press Ctrl+C to stop the server."
 
 } catch {
-    Write-Log "Fatal error starting Pode server: $_" -Level "ERROR"
-    Write-Log "$($_.ScriptStackTrace)" -Level "ERROR"
+    Write-Log "Fatal error starting Pode server: $_" -Level "ERROR"  
+    Write-Log "$($_.ScriptStackTrace)" -Level "ERROR"  
     exit 1
 }
