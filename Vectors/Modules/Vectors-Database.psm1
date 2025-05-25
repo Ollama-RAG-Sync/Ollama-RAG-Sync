@@ -325,6 +325,7 @@ try:
                 
             processed_results.append({
                 "id": ids[i],
+                "source": metadatas[i].get("source", "Unknown"),
                 "document": documents[i] if return_documents else None,
                 "metadata": metadatas[i],
                 "similarity": similarity
@@ -647,6 +648,7 @@ try:
                     
                 processed_results.append({
                     "id": ids[i],
+                    "source": metadatas[i].get("source", "Unknown"),
                     "chunk": documents[i][:1000] + ("..." if len(documents[i]) > 1000 else ""),  # Truncate long chunks
                     "metadata": metadatas[i],
                     "similarity": similarity
