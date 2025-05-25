@@ -61,7 +61,6 @@ try
     if ($ChunkOverlap -gt 0) {
         $parameters.ChunkOverlap = $ChunkOverlap
     }
-    Write-VectorsLog -Message $parameters
     $result = Add-DocumentToVectorStore @parameters
 
     if ($result) {
