@@ -358,7 +358,8 @@ function Add-DocumentToVectors {
     $originalFilePath = $FileInfo.FilePath # Store original path
     $filePath = $originalFilePath # Use this variable for processing
     $fileId = $FileInfo.Id
-    $temporaryMarkdownPath = $null # To track temporary files
+    $safeFileName = [System.IO.Path]::GetFileNameWithoutExtension($filePath) -replace '[<>:"/\\|?*]', '_'
+    $temporaryMarkdownPath = Join-Path -Path $InstallPath -ChildPath "Temp\$($safeFileName)_$(New-Guid).md" # Temporary path for converted Markdown
 
     try {
         # Verify file exists
@@ -391,11 +392,10 @@ function Add-DocumentToVectors {
                 # Add -ErrorAction Stop to catch script errors
                 # Ensure the conversion script handles its own output path logic (e.g., placing MD next to PDF)
                 & $WriteLog "Executing conversion script: '$conversionScriptPath' with PdfPath: '$filePath'" -Level "DEBUG" # Corrected logging format
-                & $conversionScriptPath -PdfFilePath $filePath -OutputFilePath ($filePath + ".md") -LogFile $script:LogFilePath -OcrTool $OcrTool -ErrorAction Stop
+                & $conversionScriptPath -PdfFilePath $filePath -OutputFilePath $temporaryMarkdownPath -LogFile $script:LogFilePath -OcrTool $OcrTool -ErrorAction Stop
                 # Trim potential whitespace from output
 
-                $markdownOutputPath = $filePath + ".md"
-                $markdownOutputPath.Trim()
+                $markdownOutputPath = $temporaryMarkdownPath
 
                 if ([string]::IsNullOrWhiteSpace($markdownOutputPath) -or (-not (Test-Path -Path $markdownOutputPath))) {
                     & $WriteLog "PDF conversion failed or did not produce a valid output path for: $filePath. Script output: '$markdownOutputPath'" -Level "ERROR"
@@ -405,7 +405,6 @@ function Add-DocumentToVectors {
                 & $WriteLog "Successfully converted PDF to Markdown: $markdownOutputPath" -Level "INFO"
                 $filePath = $markdownOutputPath # Use the Markdown file for vectorization
                 $contentType = "Text" # Treat the converted file as text
-                $temporaryMarkdownPath = $filePath # Mark this file for potential cleanup later
 
             } catch {
                 & $WriteLog "Error executing PDF conversion script '$conversionScriptPath' for '$filePath': $_" -Level "ERROR"
@@ -413,7 +412,6 @@ function Add-DocumentToVectors {
             }
         }
         # --- PDF Conversion End ---
-
 
         # Prepare request body for Vectors REST API
         $requestBody = @{
@@ -450,15 +448,15 @@ function Add-DocumentToVectors {
     finally {
         # --- Cleanup Temporary Markdown File ---
         # Only remove if it was actually created and is different from the original path
-        #if ($null -ne $temporaryMarkdownPath -and ($temporaryMarkdownPath -ne $originalFilePath) -and (Test-Path -Path $temporaryMarkdownPath)) {
-        #    & $WriteLog "Cleaning up temporary Markdown file: $temporaryMarkdownPath" -Level "DEBUG"
-        #    try {
-        #        Remove-Item -Path $temporaryMarkdownPath -Force -ErrorAction SilentlyContinue
-        #    } catch {
-        #        & $WriteLog "Failed to remove temporary Markdown file '$temporaryMarkdownPath': $_" -Level "WARNING"
-        #    }
-        #}
-        # --- Cleanup End ---
+        if ($null -ne $temporaryMarkdownPath -and ($temporaryMarkdownPath -ne $originalFilePath) -and (Test-Path -Path $temporaryMarkdownPath)) {
+            & $WriteLog "Cleaning up temporary Markdown file: $temporaryMarkdownPath" -Level "DEBUG"
+            try {
+                Remove-Item -Path $temporaryMarkdownPath -Force -ErrorAction SilentlyContinue
+            } catch {
+                & $WriteLog "Failed to remove temporary Markdown file '$temporaryMarkdownPath': $_" -Level "WARNING"
+            }
+        }
+        
     }
 }
 
