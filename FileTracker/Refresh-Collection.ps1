@@ -14,9 +14,7 @@
 .PARAMETER DatabasePath
     The path where the SQLite database is located. If not specified, the default database path will be used.
 .EXAMPLE
-    .\Update-Collection.ps1 -CollectionName "Documentation" -FolderPath "D:\MyDocuments"
-.EXAMPLE
-    .\Update-Collection.ps1 -CollectionName "Projects" -FolderPath "D:\Projects" -OmitFolders @(".ai", ".git", "bin", "obj")
+    .\Update-Collection.ps1 -CollectionName "Documentation"
 #>
 
 param (
