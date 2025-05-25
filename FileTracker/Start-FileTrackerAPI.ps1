@@ -111,7 +111,8 @@ try {
                     "/api/collections/{id}/files - PUT: Update file status in collection",
                     "/api/collections/{id}/files/{fileId} - DELETE: Remove file from collection",
                     "/api/collections/{id}/files/{fileId} - PUT: Update file status in collection",
-                    "/api/collections/{id}/update - POST: Update collection files"
+                    "/api/collections/{id}/update - POST: Update collection files",
+                    "/api/files/{fileId}/metadata - GET: Get file metadata for file ID"
                 )
             }
         } 
@@ -578,7 +579,9 @@ try {
                          $result = @{ success = $false; error = "Failed to update file status for '$filePathToUpdate' (check server logs)" }
                          Write-PodeJsonResponse -StatusCode 500 -Value $result;
                     }
-                } else {
+                }
+                else {
+                    
                     $result = @{ success = $false; error = "Invalid request. Requires 'dirty' field." }
                     Write-PodeJsonResponse -StatusCode 400 -Value $result
                 }
@@ -586,7 +589,48 @@ try {
                 Write-Log "Error in PUT /collections/.../files/$($WebEvent.Parameters['fileId']): $_" -Level "ERROR"
                 Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message), $($_.ScriptStackTrace)"}
             }
-        }  
+        }
+
+        # GET /api/files/{fileId}/metadata
+        Add-PodeRoute -Method Get -Path "$ApiPath/files/:fileId/metadata" -ScriptBlock {
+            try {
+                $fileId = [int]$WebEvent.Parameters['fileId']
+                
+                # Use local variables
+                $conn = Get-DatabaseConnection -DatabasePath $using:localDatabasePath -InstallPath $using:localInstallPath
+                $cmd = $conn.CreateCommand()
+                $cmd.CommandText = "SELECT f.collection_id, f.FilePath, c.name FROM files f INNER JOIN collections c ON c.id = f.collection_id WHERE f.id = @FileId AND f.Deleted = 0"
+                $cmd.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@FileId", $fileId)))
+                
+                $reader = $cmd.ExecuteReader()
+                
+                if ($reader.Read()) {
+                    $collectionId = $reader.GetInt32(0)
+                    $filePath = $reader.GetString(1)
+                    $collectionName = $reader.GetString(2)
+                    $reader.Close()
+                    $conn.Close()
+                    
+                    $result = @{
+                        success = $true
+                        file_id = $fileId
+                        collection_id = $collectionId
+                        collection_name = $collectionName
+                        file_path = $filePath
+                    }
+                    Write-PodeJsonResponse -Value $result
+                } else {
+                    $reader.Close()
+                    $conn.Close()
+                    Set-PodeResponseStatus -Code 404
+                    $result = @{ success = $false; error = "File not found or has been deleted" }
+                    Write-PodeJsonResponse -Value $result
+                }
+                
+            } catch {
+                Write-Log "Error in GET /files/$($WebEvent.Parameters['fileId'])/collection: $_" -Level "ERROR"
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }            }
+        }
 
         # GET /health
         Add-PodeRoute -Method Get -Path "/health" -ScriptBlock {
