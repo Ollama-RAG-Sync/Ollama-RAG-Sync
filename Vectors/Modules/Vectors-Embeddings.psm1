@@ -54,6 +54,7 @@ import json
 import urllib.request
 import urllib.error
 import time
+import datetime
 
 def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:11434"):
     """
@@ -127,13 +128,13 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
             if embedding is None:
                 print(f"ERROR:Could not identify embedding format in response: {response_data}")
             
-            return {"embedding": embedding, "duration": duration}
+            return {"embedding": embedding, "duration": duration, "created_at": datetime.datetime.now().isoformat()}
             
     except urllib.error.URLError as e:
         end_time = time.time()
         duration = end_time - start_time
         print(f"ERROR:Error connecting to Ollama: {e}")
-        return {"embedding": None, "duration": duration}
+        return {"embedding": None, "duration": duration, "created_at": datetime.datetime.now().isoformat()}
 
 try:
     # Read the document content from file
@@ -158,7 +159,8 @@ try:
     result = {
         "text": text,
         "embedding": embedding_data["embedding"],
-        "duration": embedding_data["duration"] # Added duration
+        "duration": embedding_data["duration"],
+        "created_at": embedding_data["created_at"]
     }
     
     # Return embedding as JSON
@@ -285,6 +287,7 @@ import urllib.request
 import urllib.error
 import unicodedata
 import time
+import datetime
 
 def chunk_text(text, chunk_size=1000, chunk_overlap=100):
     """
@@ -450,13 +453,13 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
             if embedding is None:
                 print(f"ERROR:Could not identify embedding format in response: {response_data}")
 
-            return {"embedding": embedding, "duration": duration}
+            return {"embedding": embedding, "duration": duration, "created_at": datetime.datetime.now().isoformat()}
             
     except urllib.error.URLError as e:
         end_time = time.time()
         duration = end_time - start_time
         print(f"ERROR:Error connecting to Ollama: {e}")
-        return {"embedding": None, "duration": duration}
+        return {"embedding": None, "duration": duration, "created_at": datetime.datetime.now().isoformat()}
 
 try:
     # Get parameters
@@ -494,7 +497,8 @@ try:
             'start_line': chunk_data["start_line"],
             'end_line': chunk_data["end_line"],
             'embedding': embedding_result["embedding"],
-            'duration': embedding_result["duration"]    # Added duration
+            'duration': embedding_result["duration"],
+            'created_at': embedding_result["created_at"]
         })
     
     # Return as JSON
@@ -608,13 +612,15 @@ function Add-DocumentToVectorStore {
     }
     
     # Read content from file if using path
-    if ($PSCmdlet.ParameterSetName -eq "ByPath") {
+    if ($PSCmdlet.ParameterSetName -eq "ByPath") {        
         $documentContent = Get-FileContent -FilePath $FilePath
         if ($null -eq $documentContent) {
             return $false
         }
         $sourcePath = $FilePath
-        $documentId = [System.IO.Path]::GetFileName($FilePath)
+        $filePathHash = [System.Security.Cryptography.MD5]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($FilePath))
+        $hashString = [System.BitConverter]::ToString($filePathHash).Replace("-", "").Substring(0, 8)
+        $documentId = [System.IO.Path]::GetFileName($FilePath) + "_" + $hashString
     }
     else {
         # Content provided directly
@@ -734,6 +740,8 @@ try:
     if "duration" in document_embedding:
         doc_metadata["duration"] = document_embedding["duration"]
 
+    doc_metadata["created_at"] = document_embedding.get("created_at", None)
+
     doc_collection.add(
         documents=[normalize_text(document_embedding["text"])], 
         embeddings=[document_embedding["embedding"]],
@@ -759,7 +767,8 @@ try:
             "total_chunks": len(chunks_data),
             "start_line": chunk_data.get("start_line", 1),
             "end_line": chunk_data.get("end_line", 1),
-            "line_range": f"{chunk_data.get('start_line', 1)}-{chunk_data.get('end_line', 1)}"
+            "line_range": f"{chunk_data.get('start_line', 1)}-{chunk_data.get('end_line', 1)}",
+            "created_at": chunk_data.get("created_at", None)
         }
         if "duration" in chunk_data:
             chunk_metadata["duration"] = chunk_data["duration"]
@@ -791,6 +800,7 @@ except Exception as e:
     # Execute the Python script
     try {
         $results = python $tempPythonScript 2>&1
+
         
         # Process the output
         $success = $false
