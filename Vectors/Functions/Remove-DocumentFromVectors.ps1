@@ -41,7 +41,7 @@ if ($EmbeddingModel) {
     $configOverrides.EmbeddingModel = $EmbeddingModel
 }
 
-Initialize-VectorsConfig -ConfigOverrides $configOverrides
+$null = Initialize-VectorsConfig -ConfigOverrides $configOverrides
 
 # Verify requirements
 if (-not (Test-VectorsRequirements)) {

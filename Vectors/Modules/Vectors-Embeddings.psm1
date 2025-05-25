@@ -47,7 +47,6 @@ function Get-DocumentEmbedding {
 
     $contentScript = [System.IO.Path]::GetTempFileName() + ".txt"
     Set-Content -Path $contentScript -Value $Content -Encoding utf8
-    $lines = (Get-Content -Path  $contentScript).Count
 
     $pythonCode = @"
 import sys
@@ -56,8 +55,24 @@ import urllib.request
 import urllib.error
 import time
 import datetime
+import os
 
-def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:11434"):
+def log_to_file(message, log_path):
+    """Log message to file with timestamp"""
+    if log_path and log_path != "()":
+        try:
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log_entry = f"[{timestamp}] {message}\n"
+            
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            
+            with open(log_path, 'a', encoding='utf-8') as f:
+                f.write(log_entry)
+        except Exception:
+            pass  # Silent fail for logging errors
+
+def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:11434", log_path=None):
     """
     Get embeddings from Ollama API
     
@@ -98,12 +113,11 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
             response_text = response.read().decode('utf-8')
             end_time = time.time()
             duration = end_time - start_time
-            
             # Parse JSON response
             try:
                 response_data = json.loads(response_text)
             except json.JSONDecodeError:
-                print(f"ERROR:Failed to parse JSON response: {response_text}")
+                log_to_file(f"ERROR:Failed to parse JSON response: {response_text}", log_path)
                 return {"embedding": None, "duration": duration} # Return duration of attempt
             
             # Handle different response formats
@@ -127,34 +141,38 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
                     embedding = response_data
             
             if embedding is None:
-                print(f"ERROR:Could not identify embedding format in response: {response_data}")
+                log_to_file(f"ERROR:Could not identify embedding format in response: {response_data}", log_path)
             
             return {"embedding": embedding, "duration": duration, "created_at": datetime.datetime.now().isoformat()}
-            
+
     except urllib.error.URLError as e:
         end_time = time.time()
         duration = end_time - start_time
-        print(f"ERROR:Error connecting to Ollama: {e}")
+        log_to_file(f"ERROR:Error connecting to Ollama: {e}", log_path)
         return {"embedding": None, "duration": duration, "created_at": datetime.datetime.now().isoformat()}
 
 try:
+    # Get log path
+    log_path = r"$Env:vectorLogFilePath"
+    
     # Read the document content from file
     with open(r'''$contentScript''', 'r', encoding='utf-8') as file:
         text = file.read()
     # Skip empty input
     if not text or not text.strip():
-        print("ERROR:Empty input")
+        log_to_file("ERROR:Empty input", log_path)
         sys.exit(1)
-    
+
     # Generate embedding
     embedding_data = get_embedding_from_ollama(
         text,
         model="$($config.EmbeddingModel)",
-        base_url="$($config.OllamaUrl)"
+        base_url="$($config.OllamaUrl)",
+        log_path=log_path
     )
 
     if embedding_data is None or embedding_data["embedding"] is None:
-        print("ERROR:Failed to generate embedding")
+        log_to_file("ERROR:Failed to generate embedding", log_path)
         sys.exit(1)
     
     result = {
@@ -163,17 +181,16 @@ try:
         "duration": embedding_data["duration"],
         "created_at": embedding_data["created_at"]
     }
-    
     # Return embedding as JSON
     print(f"SUCCESS:{json.dumps(result)}")
     
 except Exception as e:
-    print(f"ERROR:{str(e)}")
+    log_to_file(f"ERROR:{str(e)}", log_path)
     sys.exit(1)
 "@
 
     $pythonCode | Out-File -FilePath $tempPythonScript -Encoding utf8
-    
+
     if ($PSCmdlet.ParameterSetName -eq "ByPath") {
         Write-VectorsLog -Message "Generating embedding for document: $FilePath" -Level "Info"
     } else {
@@ -277,7 +294,16 @@ function Get-ChunkEmbeddings {
     $contentScript = [System.IO.Path]::GetTempFileName() + ".txt"
     Set-Content -Path $contentScript -Value $Content -Encoding utf8
     $lines = (Get-Content -Path $contentScript).Count
-    # Use Python to chunk and generate embeddings
+
+    $estimation = $lines / $ChunkSize
+    Write-VectorsLog -Message "Lines per chunk: $ChunkSize, Line overlap: $ChunkOverlap" -Level "Debug"
+    Write-VectorsLog -Message "Estimated number of chunks: $estimation" -Level "Debug"
+
+    $maxChunks = 300
+    if ($estimation -gt $maxChunks) {
+        $ChunkSize = [System.Math]::Ceiling($lines / $maxChunks)
+        Write-VectorsLog -Message "Warning: Estimated number of chunks $estimation exceeds $maxChunks. Changing chunk size to $ChunkSize" -Level "Warning"
+    }    # Use Python to chunk and generate embeddings
     $tempPythonScript = [System.IO.Path]::GetTempFileName() + ".py"
 
     $pythonCode = @"
@@ -289,6 +315,22 @@ import urllib.error
 import unicodedata
 import time
 import datetime
+import os
+
+def log_to_file(message, log_path):
+    """Log message to file with timestamp"""
+    if log_path and log_path != "()":
+        try:
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log_entry = f"[{timestamp}] {message}\n"
+            
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            
+            with open(log_path, 'a', encoding='utf-8') as f:
+                f.write(log_entry)
+        except Exception:
+            pass  # Silent fail for logging errors
 
 def chunk_text(text, chunk_size=20, chunk_overlap=2):
     """
@@ -348,7 +390,7 @@ def chunk_text(text, chunk_size=20, chunk_overlap=2):
     
     return chunks
 
-def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:11434"):
+def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:11434", log_path=None):
     """
     Get embeddings from Ollama API
     
@@ -356,6 +398,7 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
         text (str): The text to get embeddings for
         model (str): The model to use (default: "llama3")
         base_url (str): The base URL for Ollama API (default: "http://localhost:11434")
+        log_path (str): Path to log file (optional)
         
     Returns:
         dict: A dictionary with "embedding" (list) and "duration" (float), or None if error.
@@ -389,12 +432,11 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
             response_text = response.read().decode('utf-8')
             end_time = time.time()
             duration = end_time - start_time
-            
             # Parse JSON response
             try:
                 response_data = json.loads(response_text)
             except json.JSONDecodeError:
-                print(f"ERROR:Failed to parse JSON response: {response_text}")
+                log_to_file(f"ERROR:Failed to parse JSON response: {response_text}", log_path)
                 return {"embedding": None, "duration": duration}
             
             # Handle different response formats
@@ -416,16 +458,15 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
                         embedding = first_item['embeddings']
                 elif isinstance(response_data[0], (int, float)):
                     embedding = response_data
-            
             if embedding is None:
-                print(f"ERROR:Could not identify embedding format in response: {response_data}")
-
+                log_to_file(f"ERROR:Could not identify embedding format in response: {response_data}", log_path)
+            
             return {"embedding": embedding, "duration": duration, "created_at": datetime.datetime.now().isoformat()}
             
     except urllib.error.URLError as e:
         end_time = time.time()
         duration = end_time - start_time
-        print(f"ERROR:Error connecting to Ollama: {e}")
+        log_to_file(f"ERROR:Error connecting to Ollama: {e}", log_path)
         return {"embedding": None, "duration": duration, "created_at": datetime.datetime.now().isoformat()}
 
 try:
@@ -434,28 +475,25 @@ try:
     chunk_overlap = $ChunkOverlap
     model_name = "$($config.EmbeddingModel)"
     api_url = "$($config.OllamaUrl)"
+    log_path = r"$Env:vectorLogFilePath"
     source_path = "$FilePath"  # Empty for content-based
 
     # Read the document content from file
     with open(r'''$contentScript''', 'r', encoding='utf-8') as file:
-        text = file.read()
-
-    # Skip empty input
+        text = file.read()    # Skip empty input
     if not text or not text.strip():
-        print("ERROR:Empty input")
+        log_to_file("ERROR:Empty input", log_path)
         sys.exit(1)
-    
     # Split content into chunks
     chunks = chunk_text(text, chunk_size, chunk_overlap)
-    print(f"INFO:Split document into {len(chunks)} chunks")
+    log_to_file(f"INFO:Split document into {len(chunks)} chunks", log_path)
     
     # Get embeddings for each chunk
     chunk_embeddings = []
     for i, chunk_data in enumerate(chunks):
-        embedding_result = get_embedding_from_ollama(chunk_data["text"], model_name, api_url)
-        
+        embedding_result = get_embedding_from_ollama(chunk_data["text"], model_name, api_url, log_path)
         if embedding_result is None or embedding_result["embedding"] is None:
-            print(f"ERROR:Failed to get embedding for chunk {i+1}")
+            log_to_file(f"ERROR:Failed to get embedding for chunk {i+1}", log_path)
             sys.exit(1)
         
         chunk_embeddings.append({
@@ -467,12 +505,14 @@ try:
             'duration': embedding_result["duration"],
             'created_at': embedding_result["created_at"]
         })
-    
+        
+        log_to_file(f"INFO:Chunk {i} / {len(chunks)} embeddings created", log_path)
+
     # Return as JSON
     print(f"SUCCESS:{json.dumps(chunk_embeddings)}")
     
 except Exception as e:
-    print(f"ERROR:{str(e)}")
+    log_to_file(f"ERROR:{str(e)}", log_path)
     sys.exit(1)
 "@
 
@@ -484,9 +524,6 @@ except Exception as e:
         Write-VectorsLog -Message "Generating chunk embeddings for document content" -Level "Info"
     }
     
-    Write-VectorsLog -Message "Lines per chunk: $ChunkSize, Line overlap: $ChunkOverlap" -Level "Debug"
-    Write-VectorsLog -Message "Estimated number of chunks: $($lines / $ChunkSize)" -Level "Debug"
-
     # Execute the Python script
     try {
         $results = python $tempPythonScript 2>&1
@@ -639,21 +676,38 @@ function Add-DocumentToVectorStore {
       
     $chunkEmbeddingsJsonFile = [System.IO.Path]::GetTempFileName() + ".txt"
     Set-Content -Path $chunkEmbeddingsJsonFile -Value $chunkEmbeddingsJson -Encoding utf8
-
-
     $pythonCode = @"
 import os
 import sys
 import json
 import chromadb
 import unicodedata
+import datetime
 from chromadb.config import Settings
+
+def log_to_file(message, log_path):
+    """Log message to file with timestamp"""
+    if log_path and log_path != "()":
+        try:
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log_entry = f"[{timestamp}] {message}\n"
+            
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            
+            with open(log_path, 'a', encoding='utf-8') as f:
+                f.write(log_entry)
+        except Exception:
+            pass  # Silent fail for logging errors
 
 def normalize_text(text):
     normalized = unicodedata.normalize('NFKD', text)
     return normalized
 
 try:
+    # Get log path
+    log_path = r"$Env:vectorLogFilePath"
+    
     # Read the document embedding and chunk embeddings from file
     with open(r'''$docEmbeddingJsonFile''', 'r', encoding='utf-8') as file:
         docEmbeddingJson = file.read()  
@@ -682,24 +736,21 @@ try:
     # Get collections
     doc_collection = chroma_client.get_or_create_collection(name="document_collection")
     chunks_collection = chroma_client.get_or_create_collection(name="document_chunks_collection")
-    
     # Remove any existing document with this ID or source path
     try:
         doc_collection.delete(ids=[document_id])
-        print(f"INFO:Removed existing document with ID: {document_id}")
-    except:
-        pass 
-    
-    try:
-        doc_collection.delete(where={"source": source_path})
-        print(f"INFO:Removed existing document with source: {source_path}")
+        log_to_file(f"INFO:Removed existing document with ID: {document_id}", log_path)
     except:
         pass
-    
+    try:
+        doc_collection.delete(where={"source": source_path})
+        log_to_file(f"INFO:Removed existing document with source: {source_path}", log_path)
+    except:
+        pass
     # Remove any existing chunks for this document
     try:
         chunks_collection.delete(where={"source": source_path})
-        print(f"INFO:Removed existing chunks for source: {source_path}")
+        log_to_file(f"INFO:Removed existing chunks for source: {source_path}", log_path)
     except:
         pass
     
@@ -756,10 +807,10 @@ try:
         )
         print(f"SUCCESS:Added {len(chunks_data)} chunks to vector store")
     else:
-        print(f"INFO:No chunks to add for document ID: {document_id}")
+        log_to_file(f"INFO:No chunks to add for document ID: {document_id}", log_path)
     
 except Exception as e:
-    print(f"ERROR:{str(e)}")
+    log_to_file(f"ERROR:{str(e)}", log_path)
     sys.exit(1)
 "@
 

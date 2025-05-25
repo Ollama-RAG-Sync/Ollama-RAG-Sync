@@ -40,7 +40,7 @@ try
         $configOverrides.ChromaDbPath = $ChromaDbPath
     }
 
-    Initialize-VectorsConfig -ConfigOverrides $configOverrides
+    $null = Initialize-VectorsConfig -ConfigOverrides $configOverrides
 
     # Verify requirements
     if (-not (Test-VectorsRequirements)) {
