@@ -10,9 +10,15 @@
     Returns a PowerShell object containing status information about collections, files, and watchers.
 #>
 param (
-    [Parameter(Mandatory=$true)]
-    [string]$InstallPath
+    [Parameter(Mandatory=$false)]
+    [string]$InstallPath = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_INSTALL_PATH", "User")
 )
+
+# Validate InstallPath
+if ([string]::IsNullOrWhiteSpace($InstallPath)) {
+    Write-Error "InstallPath is required. Please provide it as a parameter or set the OLLAMA_RAG_INSTALL_PATH environment variable."
+    exit 1
+}
 
 # Import required modules
 Import-Module -Name "$PSScriptRoot\FileTracker-Shared.psm1" -Force

@@ -24,8 +24,8 @@ param (
     [Parameter(Mandatory = $true)]
     [string]$FolderPath,
 
-    [Parameter(Mandatory = $true)]
-    [string]$InstallPath, # Added mandatory InstallPath
+    [Parameter(Mandatory = $false)]
+    [string]$InstallPath = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_INSTALL_PATH", "User"),
     
     [Parameter(Mandatory = $false)]
     [string[]]$OmitFolders = @(".git"),
@@ -33,6 +33,12 @@ param (
     [Parameter(Mandatory = $false)]
     [string]$DatabasePath # Made optional override
 )
+
+# Validate InstallPath
+if ([string]::IsNullOrWhiteSpace($InstallPath)) {
+    Write-Error "InstallPath is required. Please provide it as a parameter or set the OLLAMA_RAG_INSTALL_PATH environment variable."
+    exit 1
+}
 
 # Import the shared database module
 $scriptParentPath = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent

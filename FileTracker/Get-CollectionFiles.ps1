@@ -30,13 +30,13 @@
 
 param (
     [Parameter(Mandatory = $false)]
-    [string]$CollectionName,
-
+    [string]$CollectionName,   
+    
     [Parameter(Mandatory = $false)]
     [int]$CollectionId,
 
-    [Parameter(Mandatory = $true)]
-    [string]$InstallPath,
+    [Parameter(Mandatory = $false)]
+    [string]$InstallPath = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_INSTALL_PATH", "User"),
     
     [Parameter(Mandatory = $false)]
     [switch]$IncludeDirty,
@@ -55,6 +55,12 @@ param (
 $scriptParentPath = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 $databaseSharedModulePath = Join-Path -Path $scriptParentPath -ChildPath "Database-Shared.psm1"
 Import-Module -Name $databaseSharedModulePath -Force
+
+# Validate InstallPath
+if ([string]::IsNullOrWhiteSpace($InstallPath)) {
+    Write-Error "InstallPath is required. Please provide it as a parameter or set the OLLAMA_RAG_INSTALL_PATH environment variable."
+    exit 1
+}
 
 # Determine Database Path
 # Note: This script doesn't accept $DatabasePath override, it relies solely on $InstallPath

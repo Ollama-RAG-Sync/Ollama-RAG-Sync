@@ -1,30 +1,18 @@
-<#
-.SYNOPSIS
-    Sets up a Retrieval-Augmented Generation (RAG) environment for a specified directory.
-
-.DESCRIPTION
-    This script initializes a complete RAG environment by:
-    2. Setting up a SQLite database to track file modifications
-    3. Initializing a ChromaDB vector database for embeddings
-    4. Starting a file watcher to monitor changes in the directory
-
-.PARAMETER EmbeddingModel
-    The name of the embedding model to use (default: "mxbai-embed-large:latest").
-
-.PARAMETER OllamaUrl
-    The URL of the Ollama API (default: "http://localhost:11434").
-
-#>
-
 param (
-    [Parameter(Mandatory = $true)]
-    [string]$InstallPath,
+    [Parameter(Mandatory = $false)]
+    [string]$InstallPath = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_INSTALL_PATH", "User"),
 
     [Parameter(Mandatory = $false)]
-    [string]$EmbeddingModel = "mxbai-embed-large:latest",
+    [string]$EmbeddingModel = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_EMBEDDING_MODEL", "User") ?? "mxbai-embed-large:latest",
     
     [Parameter(Mandatory = $false)]
-    [string]$OllamaUrl = "http://localhost:11434"   
+    [string]$OllamaUrl = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_URL", "User") ?? "http://localhost:11434",
+
+    [Parameter(Mandatory = $false)]
+    [int]$ChunkSize = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_CHUNK_SIZE", "User") ?? 20,
+
+    [Parameter(Mandatory = $false)]
+    [int]$ChunkOverlap = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_CHUNK_OVERLAP", "User") ?? 2
 )
 
 # Function to log messages
@@ -39,6 +27,33 @@ function Write-Log {
     Write-Host $logMessage
 }
 
+# Validate InstallPath
+if ([string]::IsNullOrWhiteSpace($InstallPath)) {
+    Write-Log "InstallPath is required. Please provide it as a parameter or set the OLLAMA_RAG_INSTALL_PATH environment variable." -Level "ERROR"
+    exit 1
+}
+
+# Ensure InstallPath directory exists
+if (-not (Test-Path -Path $InstallPath)) {
+    try {
+        New-Item -Path $InstallPath -ItemType Directory -Force | Out-Null
+        Write-Log "Created install directory: $InstallPath" -Level "INFO"
+    }
+    catch {
+        Write-Log "Failed to create install directory: $InstallPath - $_" -Level "ERROR"
+        exit 1
+    }
+}
+
+# Save environment variables
+Write-Log "Saving configuration as environment variables..." -Level "INFO"
+[System.Environment]::SetEnvironmentVariable("OLLAMA_RAG_INSTALL_PATH", $InstallPath, "User")
+[System.Environment]::SetEnvironmentVariable("OLLAMA_RAG_EMBEDDING_MODEL", $EmbeddingModel, "User")
+[System.Environment]::SetEnvironmentVariable("OLLAMA_RAG_URL", $OllamaUrl, "User")
+[System.Environment]::SetEnvironmentVariable("OLLAMA_RAG_CHUNK_SIZE", $ChunkSize, "User")
+[System.Environment]::SetEnvironmentVariable("OLLAMA_RAG_CHUNK_OVERLAP", $ChunkOverlap, "User")
+Write-Log "Environment variables saved successfully" -Level "INFO"
+
 # Install required packages if not already installed
 function Ensure-Package {
     param([string]$PackageName)
@@ -51,29 +66,6 @@ function Ensure-Package {
     
     if ($installed -ne "installed") {
         Write-Log "Installing required Python package: $PackageName..." -Level "INFO"
-        python -m pip install $PackageName
-        if ($LASTEXITCODE -ne 0) {
-            Write-Log "Failed to install $PackageName. Please install it manually with 'pip install $PackageName'" -Level "ERROR"
-            exit 1
-        }
-        Write-Log "$PackageName installed successfully." -Level "INFO"
-    }
-    else {
-        Write-Log "$PackageName is already installed." -Level "INFO"
-    }
-}
-
-function Ensure-Package {
-    param([string]$PackageName)
-    
-    $installed = pwsh.exe -c "try: 
-        import $PackageName
-        print('installed')
-    except ImportError: 
-        print('not installed')" 2>$null
-    
-    if ($installed -ne "installed") {
-        Write-Log "Installing $PackageName..." -Level "INFO"
         python -m pip install $PackageName
         if ($LASTEXITCODE -ne 0) {
             Write-Log "Failed to install $PackageName. Please install it manually with 'pip install $PackageName'" -Level "ERROR"

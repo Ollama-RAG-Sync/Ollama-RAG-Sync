@@ -6,8 +6,8 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$CollectionName,
 
-    [Parameter(Mandatory=$true)]
-    [string]$InstallPath,
+    [Parameter(Mandatory=$false)]
+    [string]$InstallPath = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_INSTALL_PATH", "User"),
 
     [Parameter(Mandatory=$false)]
     [string]$VectorsApiUrl = "http://localhost:10001",
@@ -16,19 +16,10 @@ param(
     [string]$FileTrackerApiUrl = "http://localhost:10003/api",
 
     [Parameter(Mandatory=$false)]
-    [int]$ChunkSize = 1000,
+    [int]$ChunkSize = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_CHUNK_SIZE", "User"),
 
     [Parameter(Mandatory=$false)]
-    [int]$ChunkOverlap = 100,
-
-    [Parameter(Mandatory=$false)]
-    [switch]$Continuous = $false,
-
-    [Parameter(Mandatory=$false)]
-    [int]$ProcessInterval = 5, # Interval in minutes for continuous mode
-
-    [Parameter(Mandatory=$false)]
-    [string]$StopFileName = ".stop_processing", # File name to signal stop in continuous mode
+    [int]$ChunkOverlap = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_CHUNK_OVERLAP", "User"),
 
     [Parameter(Mandatory=$false)]
     [ValidateSet("marker", "tesseract", "ocrmypdf", "pymupdf")]
@@ -242,6 +233,11 @@ function Mark-FileAsProcessed {
         & $WriteLog "Error calling FileTracker API to mark file $FileId as processed: $_" -Level "ERROR"
         return $false
     }
+}
+
+if ([string]::IsNullOrWhiteSpace($InstallPath)) {
+    Write-Error "InstallPath is required. Please provide it as a parameter or set the OLLAMA_RAG_INSTALL_PATH environment variable."
+    exit 1
 }
 
 # --- Core Processing Logic (from Start-Processor.ps1) ---
@@ -579,86 +575,12 @@ try {
     & $WriteLog "Lines per chunk: $ChunkSize, Line overlap: $ChunkOverlap"
 
     # If running in continuous mode, set up a loop
-    if ($Continuous) {
-        & $WriteLog "Starting continuous processing mode for collection '$CollectionName'. Polling every $ProcessInterval minutes."
-        & $WriteLog "To stop processing, create a file named '$StopFileName' in the script directory ($scriptPath)." -Level "WARNING"
-
-        # Remove stop file if it exists from a previous run
-        if (Test-Path -Path $StopFilePath) {
-            & $WriteLog "Removing existing stop file: $StopFilePath" -Level "INFO"
-            Remove-Item -Path $StopFilePath -Force -ErrorAction SilentlyContinue
-        }
-
-        $keepRunning = $true
-        $iteration = 0
-
-        while ($keepRunning) {
-            $iteration++
-            & $WriteLog "Starting iteration $iteration..."
-
-            # Check for stop file at the beginning of each loop
-            if (Test-StopFile -PathToCheck $StopFilePath) {
-                $keepRunning = $false
-                break
-            }
-
-            # Process the current batch of dirty files
-            $batchSuccess = Process-CollectionBatch -CollectionNameParam $CollectionName -FileTrackerBaseUrl $FileTrackerApiUrl -OcrTool $OcrTool
-
-            # Check if we should continue (batchSuccess being false could mean errors or stop file)
-            if (-not $batchSuccess) {
-                & $WriteLog "Batch processing reported failure or interruption. Checking stop file..." -Level "WARNING"
-                if (Test-StopFile -PathToCheck $StopFilePath) {
-                    $keepRunning = $false
-                    break # Exit loop if stop file found
-                }
-                 & $WriteLog "Stop file not found, but errors occurred in the batch. Continuing loop." -Level "WARNING"
-            }
-
-            # If we're still running, wait for the next interval
-            if ($keepRunning) {
-                $nextRun = (Get-Date).AddMinutes($ProcessInterval)
-                & $WriteLog "Next processing run scheduled at: $nextRun. Sleeping for $ProcessInterval minutes."
-
-                # Sleep in smaller increments to check for stop file periodically
-                $sleepIntervalSeconds = 15 # Check every 15 seconds
-                $totalSleepSeconds = $ProcessInterval * 60
-                $sleepCount = [math]::Ceiling($totalSleepSeconds / $sleepIntervalSeconds)
-
-                for ($i = 0; $i -lt $sleepCount; $i++) {
-                    if (Test-StopFile -PathToCheck $StopFilePath) {
-                        $keepRunning = $false
-                        break
-                    }
-
-                    # Calculate remaining sleep time in this chunk
-                    $remainingTotalSeconds = $totalSleepSeconds - ($i * $sleepIntervalSeconds)
-                    $sleepTime = [math]::Min($sleepIntervalSeconds, $remainingTotalSeconds)
-
-                    if ($sleepTime -gt 0) {
-                        Start-Sleep -Seconds $sleepTime
-                    }
-                }
-                 if (-not $keepRunning) { break } # Exit outer loop if stop file found during sleep
-            }
-        }
-
-        & $WriteLog "Continuous processing has been stopped."
-        # Clean up stop file
-        if (Test-Path -Path $StopFilePath) {
-            & $WriteLog "Removing stop file: $StopFilePath" -Level "INFO"
-            Remove-Item -Path $StopFilePath -Force -ErrorAction SilentlyContinue
-        }
-    }
-    # Otherwise, just run once
-    else {
-        $batchSuccess = Process-CollectionBatch -CollectionNameParam $CollectionName -FileTrackerBaseUrl $FileTrackerApiUrl -OcrTool $OcrTool
-        if (-not $batchSuccess) {
-             & $WriteLog "Single batch processing run completed with errors." -Level "ERROR"
-            exit 1 # Exit with error code if the single run had errors
-        } else {
-             & $WriteLog "Single batch processing run completed successfully." -Level "INFO"
-        }
+    $batchSuccess = Process-CollectionBatch -CollectionNameParam $CollectionName -FileTrackerBaseUrl $FileTrackerApiUrl -OcrTool $OcrTool
+    if (-not $batchSuccess) {
+        & $WriteLog "Single batch processing run completed with errors." -Level "ERROR"
+        exit 1 # Exit with error code if the single run had errors
+    } else {
+        & $WriteLog "Single batch processing run completed successfully." -Level "INFO"
     }
 }
 catch {

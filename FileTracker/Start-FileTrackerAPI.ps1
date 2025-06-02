@@ -2,8 +2,8 @@ param (
     [Parameter(Mandatory=$false)]
     [string]$ListenAddress = "localhost",
     
-    [Parameter(Mandatory=$true)]
-    [string]$InstallPath,
+    [Parameter(Mandatory=$false)]
+    [string]$InstallPath = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_INSTALL_PATH", "User"),
   
     [Parameter(Mandatory=$false)]
     [int]$Port = 10003,
@@ -14,6 +14,12 @@ param (
 
 # Import Pode Module
 Import-Module Pode -ErrorAction Stop
+
+# Validate InstallPath
+if ([string]::IsNullOrWhiteSpace($InstallPath)) {
+    Write-Error "InstallPath is required. Please provide it as a parameter or set the OLLAMA_RAG_INSTALL_PATH environment variable."
+    exit 1
+}
 
 $TempDir = Join-Path -Path $InstallPath -ChildPath "Temp"
 if (-not (Test-Path -Path $TempDir)) 

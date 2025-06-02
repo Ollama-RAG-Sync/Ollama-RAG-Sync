@@ -13,10 +13,11 @@ param (
     [int]$Port = 10001,
 
     [Parameter(Mandatory=$false)]
-    [string]$OllamaUrl = "http://localhost:11434", # Ollama API URL
+    [string]$OllamaUrl = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_URL", "User") ?? "http://localhost:11434", # Ollama API URL
     
     [Parameter(Mandatory=$false)]
-    [string]$EmbeddingModel = "mxbai-embed-large:latest",
+    [string]$EmbeddingModel = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_EMBEDDING_MODEL", "User") ?? "mxbai-embed-large:latest",
+    
     [Parameter(Mandatory=$false)]
     [int]$DefaultChunkSize = 20,  # Number of lines per chunk
     
@@ -26,11 +27,19 @@ param (
     [Parameter(Mandatory=$false)]
     [switch]$UseHttps, # Pode handles HTTPS via Start-PodeServer -Endpoint options
 
-    [Parameter(Mandatory=$true)]
-    [string]$InstallPath
-)
+    [Parameter(Mandatory=$false)]
+    [string]$InstallPath = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_INSTALL_PATH", "User")
+) 
+ 
  # Import Pode Module
  Import-Module Pode -ErrorAction Stop
+ 
+ # Validate InstallPath
+ if ([string]::IsNullOrWhiteSpace($InstallPath)) {
+     Write-Error "InstallPath is required. Please provide it as a parameter or set the OLLAMA_RAG_INSTALL_PATH environment variable."
+     exit 1
+ }
+ 
  $chromaDbPath = Join-Path -Path $InstallPath -ChildPath "Chroma.db"
 
  # Determine script path and import local modules/functions

@@ -17,18 +17,20 @@ param(
     [Parameter(Mandatory=$true, ParameterSetName="ByPath")]
     [string]$FilePath,
 
-    [Parameter(Mandatory=$true)]
-    [string]$InstallPath,
+    [Parameter(Mandatory=$false)]
+    [string]$InstallPath = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_INSTALL_PATH", "User"),
 
     [Parameter(Mandatory=$false)]
-    [string]$VectorsApiUrl = "http://localhost:10001",    [Parameter(Mandatory=$false)]
+    [string]$VectorsApiUrl = "http://localhost:10001",    
+    
+    [Parameter(Mandatory=$false)]
     [string]$FileTrackerApiUrl = "http://localhost:10003/api",
 
-    [Parameter(Mandatory=$false)]
-    [int]$ChunkSize = 20,  # Number of lines per chunk
+    [Parameter(Mandatory=$true)]
+    [int]$ChunkSize = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_CHUNK_SIZE", "User"),
 
-    [Parameter(Mandatory=$false)]
-    [int]$ChunkOverlap = 3,  # Number of lines to overlap between chunks
+    [Parameter(Mandatory=$true)]
+    [int]$ChunkOverlap = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_CHUNK_OVERLAP", "User"),
 
     [Parameter(Mandatory=$false)]
     [ValidateSet("marker", "tesseract", "ocrmypdf", "pymupdf")]
@@ -216,6 +218,11 @@ function Get-FileByPath {
         & $WriteLog "Error calling FileTracker API to find file by path '$FilePath': $_" -Level "ERROR"
         return $null
     }
+}
+
+if ([string]::IsNullOrWhiteSpace($InstallPath)) {
+    Write-Error "InstallPath is required. Please provide it as a parameter or set the OLLAMA_RAG_INSTALL_PATH environment variable."
+    exit 1
 }
 
 # --- Core Processing Logic ---
