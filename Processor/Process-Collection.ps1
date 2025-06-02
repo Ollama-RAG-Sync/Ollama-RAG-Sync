@@ -263,10 +263,6 @@ $WriteLog = {
     # Use the script-scoped LogFilePath
     Write-Log -Message $Message -Level $Level -LogFilePath $script:LogFilePath
 }
-
-# Define Stop File Path (relative to script location)
-$StopFilePath = Join-Path -Path $scriptPath -ChildPath $StopFileName
-
 function Invoke-VectorsRestAPI {
     param (
         [Parameter(Mandatory=$true)]
@@ -494,20 +490,6 @@ function Process-DirtyFile {
     }
 }
 
-# Function to check if a stop file exists
-function Test-StopFile {
-    param (
-        [string]$PathToCheck
-    )
-
-    if (-not [string]::IsNullOrEmpty($PathToCheck) -and (Test-Path -Path $PathToCheck)) {
-        & $WriteLog "Stop file detected at: $PathToCheck. Stopping processing." -Level "WARNING"
-        return $true
-    }
-
-    return $false
-}
-
 # Function to process a single batch of dirty files
 function Process-CollectionBatch {
     param(
@@ -547,11 +529,6 @@ function Process-CollectionBatch {
             }
             else {
                 $errorCount++
-            }
-
-            # Check for stop file after each file in case we need to abort mid-batch
-            if (Test-StopFile -PathToCheck $StopFilePath) {
-                return $false # Indicate interruption
             }
         }
 
