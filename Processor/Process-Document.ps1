@@ -306,16 +306,12 @@ function Get-FileContentType {
     # Add more extensions as needed
     $textExtensions = @(".txt", ".md", ".html", ".csv", ".json", ".js", ".ts", ".ps1", ".psm1", ".py", ".cs", ".java", ".xml", ".yaml", ".yml", ".log")
     $pdfExtension = ".pdf"
-    $docxExtension = ".docx"
 
     if ($textExtensions -contains $extension) {
         return "Text"
     }
     elseif ($extension -eq $pdfExtension) {
         return "PDF"
-    }
-    elseif ($extension -eq $docxExtension) {
-        return "DOCX"
     }
     else {
         & $WriteLog "Unknown file type for extension '$extension' in file: $FilePath" -Level "WARNING"
