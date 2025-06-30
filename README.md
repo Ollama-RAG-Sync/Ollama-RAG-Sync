@@ -13,28 +13,45 @@ A comprehensive PowerShell-based RAG (Retrieval-Augmented Generation) system tha
 
 ## 🏗️ Architecture
 
-The system consists of four main components:
+The system consists of five main components organized under the `RAG/` and `MCP/` directories:
 
-### 1. FileTracker
+### 1. FileTracker (`RAG/FileTracker/`)
+
 Monitors file collections and tracks changes using SQLite database.
-- **Port**: 10003
+
+- **Port**: 10003 (configurable via `OLLAMA_RAG_FILE_TRACKER_API_PORT`)
 - **Database**: SQLite-based file tracking
 - **Features**: File watching, collection management, change detection
 
-### 2. Processor
+### 2. Processor (`RAG/Processor/`)
+
 Processes documents and converts them to vector embeddings.
-- **Port**: 10005
+
 - **Features**: PDF to markdown conversion, text chunking, batch processing
+- **Conversion**: Supports PDF to markdown conversion in `Conversion/` subdirectory
 
-### 3. Vectors
+### 3. Vectors (`RAG/Vectors/`)
+
 Vector database operations and similarity search.
-- **Port**: 10001
-- **Features**: Document embedding, similarity search, vector storage
 
-### 4. MCP Server
+- **Port**: 10001 (configurable via `OLLAMA_RAG_VECTORS_API_PORT`)
+- **Features**: Document embedding, similarity search, vector storage
+- **Modules**: Core functionality in `Modules/` and API functions in `Functions/`
+
+### 4. Search (`RAG/Search/`)
+
+High-level search operations for retrieving relevant documents and chunks.
+
+- **Features**: Best document retrieval, chunk-based search
+- **Integration**: Works with Vectors component for semantic search
+
+### 5. MCP Server (`MCP/`)
+
 Model Context Protocol server for AI integration.
+
 - **Technology**: .NET 8.0 C# application
-- **Features**: AI assistant integration, protocol compliance
+- **Package**: ModelContextProtocol v0.1.0-preview.9
+- **Features**: AI assistant integration, protocol compliance, stdio transport
 
 ## 📋 Prerequisites
 
@@ -45,8 +62,6 @@ Model Context Protocol server for AI integration.
 
 ### Required PowerShell Modules
 - `Pode` (REST API framework)
-- `Microsoft.PowerShell.Management`
-- `Microsoft.PowerShell.Utility`
 
 ## 🛠️ Installation
 
@@ -57,11 +72,13 @@ cd Ollama-RAG-Sync
 ```
 
 ### 2. Run Setup
+
 ```powershell
-.\Setup-RAG.ps1 -InstallPath "C:\OllamaRAG"
+.\RAG\Setup-RAG.ps1 -InstallPath "C:\OllamaRAG"
 ```
 
 #### Setup Parameters
+
 - `-InstallPath`: Installation directory (required)
 - `-EmbeddingModel`: Ollama embedding model (default: `mxbai-embed-large:latest`)
 - `-OllamaUrl`: Ollama API URL (default: `http://localhost:11434`)
@@ -69,14 +86,14 @@ cd Ollama-RAG-Sync
 - `-ChunkOverlap`: Overlap between chunks (default: 2)
 
 ### 3. Start the System
+
 ```powershell
-.\Start-RAG.ps1
+.\RAG\Start-RAG.ps1
 ```
 
 This will start all components:
 - FileTracker API (port 10003)
 - Vectors API (port 10001)
-- MCP Server
 
 ## ⚙️ Configuration
 
@@ -89,19 +106,23 @@ The system uses environment variables for configuration:
 | `OLLAMA_RAG_URL` | Ollama API URL | `http://localhost:11434` |
 | `OLLAMA_RAG_CHUNK_SIZE` | Text chunk size | 20 |
 | `OLLAMA_RAG_CHUNK_OVERLAP` | Chunk overlap | 2 |
+| `OLLAMA_RAG_FILE_TRACKER_API_PORT` | FileTracker API port | 10003 |
+| `OLLAMA_RAG_VECTORS_API_PORT` | Vectors API port | 10001 |
 
 ## 📚 Usage
 
 ### Adding a Document Collection
+
 ```powershell
 # Add a folder to track
-.\FileTracker\Add-Folder.ps1 -CollectionName "MyDocs" -FolderPath "C:\Documents"
+.\RAG\FileTracker\Add-Folder.ps1 -CollectionName "MyDocs" -FolderPath "C:\Documents"
 ```
 
 ### Processing Documents
+
 ```powershell
 # Process all dirty files in a collection
-.\Processor\Process-Collection.ps1 -CollectionName "MyDocs"
+.\RAG\Processor\Process-Collection.ps1 -CollectionName "MyDocs"
 ```
 
 ### Searching Documents
@@ -116,15 +137,11 @@ Use the REST API endpoints or integrate with the MCP server for AI-powered searc
 - `PUT /api/files/{id}/status` - Update file status
 
 ### Vectors API (Port 10001)
+
 - `POST /api/documents` - Add document to vector database
 - `DELETE /api/documents/{id}` - Remove document
 - `POST /api/search/documents` - Search documents by query
 - `POST /api/search/chunks` - Search text chunks
-
-### Processor API (Port 10005)
-- `POST /api/process/collection` - Process collection
-- `POST /api/process/document` - Process single document
-- `GET /api/status` - Get processing status
 
 ## 🤖 MCP Integration
 
@@ -142,36 +159,173 @@ dotnet build
 
 ```
 Ollama-RAG-Sync/
-├── FileTracker/          # File monitoring and tracking
-├── Processor/            # Document processing pipeline
-├── Vectors/              # Vector database operations
+├── RAG/                  # Main RAG system components
+│   ├── FileTracker/      # File monitoring and tracking
+│   ├── Processor/        # Document processing pipeline
+│   │   └── Conversion/   # PDF to markdown conversion
+│   ├── Search/           # High-level search operations
+│   ├── Vectors/          # Vector database operations
+│   │   ├── Functions/    # Vector API functions
+│   │   └── Modules/      # Core vector modules
+│   ├── Setup-RAG.ps1     # Installation script
+│   └── Start-RAG.ps1     # Startup script
 ├── MCP/                  # Model Context Protocol server
-├── Setup-RAG.ps1         # Installation script
-├── Start-RAG.ps1         # Startup script
+│   ├── Program.cs        # MCP server implementation
+│   ├── Ollama-RAG-Sync.csproj
+│   └── Ollama-RAG-Sync.sln
 └── README.md            # This file
 ```
 
 ## 🔧 Advanced Usage
 
+### Search Operations
+
+The system provides two powerful search scripts for finding relevant content:
+
+#### Document-Level Search with `Get-BestDocuments.ps1`
+
+Finds the most relevant documents based on semantic similarity:
+
+```powershell
+# Basic document search
+.\RAG\Search\Get-BestDocuments.ps1 -Query "machine learning algorithms" -CollectionName "TechDocs"
+
+# Advanced search with custom parameters
+.\RAG\Search\Get-BestDocuments.ps1 `
+    -Query "database optimization techniques" `
+    -CollectionName "DatabaseDocs" `
+    -Threshold 0.8 `
+    -MaxResults 10 `
+    -ReturnContent $true
+
+# Search without returning full content (faster for large documents)
+.\RAG\Search\Get-BestDocuments.ps1 `
+    -Query "API documentation" `
+    -CollectionName "APIDocs" `
+    -ReturnContent $false `
+    -MaxResults 20
+```
+
+**Parameters:**
+
+- `Query`: Search terms or natural language query
+- `CollectionName`: Target document collection
+- `Threshold`: Similarity threshold (0.0-1.0, default: 0.6)
+- `MaxResults`: Maximum documents to return (default: 5)
+- `ReturnContent`: Include full document content (default: true)
+- `VectorsPort`: Custom API port (uses environment variable if not specified)
+
+#### Chunk-Level Search with `Get-BestChunks.ps1`
+
+Finds specific text chunks within documents for more granular results:
+
+```powershell
+# Basic chunk search
+.\RAG\Search\Get-BestChunks.ps1 -Query "neural network architecture" -CollectionName "Research"
+
+# Search with document aggregation
+.\RAG\Search\Get-BestChunks.ps1 `
+    -Query "error handling patterns" `
+    -CollectionName "CodeDocs" `
+    -AggregateByDocument $true `
+    -MaxResults 15
+
+# High-precision search
+.\RAG\Search\Get-BestChunks.ps1 `
+    -Query "security vulnerabilities" `
+    -CollectionName "SecurityDocs" `
+    -Threshold 0.9 `
+    -MaxResults 5 `
+    -AggregateByDocument $false
+```
+
+**Parameters:**
+
+- `Query`: Search terms or natural language query
+- `CollectionName`: Target document collection
+- `Threshold`: Similarity threshold (0.0-1.0, default: 0.6)
+- `MaxResults`: Maximum chunks to return (default: 5)
+- `AggregateByDocument`: Group chunks by source document (default: false)
+- `VectorsPort`: Custom API port (uses environment variable if not specified)
+
+#### Advanced Search Patterns
+
+**1. Multi-Step Research Workflow:**
+
+```powershell
+# Step 1: Find relevant documents
+$docs = .\RAG\Search\Get-BestDocuments.ps1 `
+    -Query "microservices architecture patterns" `
+    -CollectionName "Architecture" `
+    -ReturnContent $false `
+    -MaxResults 20
+
+# Step 2: Get detailed chunks from top documents
+$chunks = .\RAG\Search\Get-BestChunks.ps1 `
+    -Query "service discovery and load balancing" `
+    -CollectionName "Architecture" `
+    -AggregateByDocument $true `
+    -MaxResults 10
+```
+
+**2. Comparative Analysis:**
+
+```powershell
+# Compare different threshold levels
+$highPrecision = .\RAG\Search\Get-BestChunks.ps1 `
+    -Query "performance optimization" `
+    -CollectionName "Performance" `
+    -Threshold 0.85 `
+    -MaxResults 5
+
+$broadSearch = .\RAG\Search\Get-BestChunks.ps1 `
+    -Query "performance optimization" `
+    -CollectionName "Performance" `
+    -Threshold 0.6 `
+    -MaxResults 15
+```
+
+**3. Cross-Collection Search:**
+
+```powershell
+# Search across multiple collections
+$collections = @("TechDocs", "Research", "CodeExamples")
+$allResults = @()
+
+foreach ($collection in $collections) {
+    $result = .\RAG\Search\Get-BestDocuments.ps1 `
+        -Query "artificial intelligence applications" `
+        -CollectionName $collection `
+        -MaxResults 5
+    
+    if ($result -and $result.success) {
+        $allResults += $result.results
+    }
+}
+```
+
 ### Custom Document Processing
+
 ```powershell
 # Process with custom OCR tool
-.\Processor\Process-Collection.ps1 -CollectionName "MyDocs" -OcrTool "tesseract"
+.\RAG\Processor\Process-Collection.ps1 -CollectionName "MyDocs" -OcrTool "tesseract"
 ```
 
 ### Custom Port Configuration
+
 ```powershell
 # Start with custom ports
-.\Start-RAG.ps1 -FileTrackerPort 9003 -VectorsPort 9001 -ProcessorPort 9005
+.\RAG\Start-RAG.ps1 -FileTrackerPort 9003 -VectorsPort 9001
 ```
 
 ### Batch Operations
+
 ```powershell
 # Refresh all collections
-.\FileTracker\Refresh-Collection.ps1 -CollectionName "MyDocs"
+.\RAG\FileTracker\Refresh-Collection.ps1 -CollectionName "MyDocs"
 
 # Get collection status
-.\FileTracker\Get-CollectionFiles.ps1 -CollectionName "MyDocs"
+.\RAG\FileTracker\Get-CollectionFiles.ps1 -CollectionName "MyDocs"
 ```
 
 ## 🐛 Troubleshooting
@@ -187,6 +341,7 @@ Ollama-RAG-Sync/
    - Check for running processes: `netstat -an | findstr :10001`
 
 3. **PowerShell Module Missing**
+
    ```powershell
    Install-Module -Name Pode -Force
    ```
@@ -222,7 +377,9 @@ This project is licensed under the terms specified in the LICENSE file.
 ---
 
 For detailed component documentation, see the README files in each subdirectory:
-- [FileTracker README](FileTracker/README.md)
-- [Processor Documentation](Processor/)
-- [Vectors Documentation](Vectors/)
+
+- [FileTracker README](RAG/FileTracker/README.md)
+- [Processor Documentation](RAG/Processor/)
+- [Vectors Documentation](RAG/Vectors/)
+- [Search Documentation](RAG/Search/)
 - [MCP Documentation](MCP/)

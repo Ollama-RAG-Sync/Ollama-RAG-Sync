@@ -28,7 +28,7 @@ try:
     
     # Get or create document collection
     doc_collection = chroma_client.get_or_create_collection(
-        name="document_collection",
+        name="default_collection",
         metadata={
             "hnsw:space": "cosine",
             "hnsw:search_ef": 100
@@ -38,7 +38,7 @@ try:
     
     # Get or create chunks collection
     chunks_collection = chroma_client.get_or_create_collection(
-        name="document_chunks_collection",
+        name="default_chunks_collection",
         metadata={
             "hnsw:space": "cosine",
             "hnsw:search_ef": 100

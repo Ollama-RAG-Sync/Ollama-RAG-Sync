@@ -15,7 +15,10 @@ param(
     [string]$OllamaUrl,
     
     [Parameter(Mandatory=$false)]
-    [string]$EmbeddingModel
+    [string]$EmbeddingModel,
+    
+    [Parameter(Mandatory=$false)]
+    [string]$CollectionName = "default"
 )
 
 # Import required modules
@@ -50,13 +53,15 @@ if (-not (Test-VectorsRequirements)) {
 }
 
 # Remove document from vector store
-$parameters = @{}
+$parameters = @{
+    CollectionName = $CollectionName
+}
 
 if ($PSCmdlet.ParameterSetName -eq "ByPath") {
-    Write-VectorsLog -Message "Removing document by path: $FilePath" -Level "Info"
+    Write-VectorsLog -Message "Removing document by path: $FilePath (Collection: $CollectionName)" -Level "Info"
     $parameters.FilePath = $FilePath
 } else {
-    Write-VectorsLog -Message "Removing document by ID: $DocumentId" -Level "Info"
+    Write-VectorsLog -Message "Removing document by ID: $DocumentId (Collection: $CollectionName)" -Level "Info"
     $parameters.DocumentId = $DocumentId
 }
 

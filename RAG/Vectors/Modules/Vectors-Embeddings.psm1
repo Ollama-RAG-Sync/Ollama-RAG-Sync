@@ -600,7 +600,10 @@ function Add-DocumentToVectorStore {
         [int]$ChunkSize = 20,
         
         [Parameter(Mandatory=$false)]
-        [int]$ChunkOverlap = 2
+        [int]$ChunkOverlap = 2,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$CollectionName = "default"
     )
     
     $config = Get-VectorsConfig
@@ -722,6 +725,7 @@ try:
     # Get paths and IDs
     source_path = r"$sourcePath"
     document_id = r"$documentId"
+    collection_name = r"$CollectionName"
     
     # Setup ChromaDB client
     output_folder = r'$($config.ChromaDbPath)'
@@ -733,10 +737,25 @@ try:
         settings=Settings(anonymized_telemetry=False)
     )
     
-    # Get collections
-    doc_collection = chroma_client.get_or_create_collection(name="document_collection")
-    chunks_collection = chroma_client.get_or_create_collection(name="document_chunks_collection")
-    # Remove any existing document with this ID or source path
+    # Get collections with dynamic names
+    doc_collection_name = f"{collection_name}_documents"
+    
+    doc_collection = chroma_client.get_or_create_collection(
+        name=doc_collection_name,
+        metadata={
+            "hnsw:space": "cosine",
+            "hnsw:search_ef": 100
+        }
+    )
+    chunks_collection_name = f"{collection_name}_chunks"
+ 
+    chunks_collection = chroma_client.get_or_create_collection(
+        name=chunks_collection_name,
+        metadata={
+            "hnsw:space": "cosine",
+            "hnsw:search_ef": 100
+        }
+    )
     try:
         doc_collection.delete(ids=[document_id])
         log_to_file(f"INFO:Removed existing document with ID: {document_id}", log_path)
@@ -755,7 +774,7 @@ try:
         pass
     
     # Add document to collection
-    doc_metadata = {"source": source_path}
+    doc_metadata = {"source": source_path, "collection": collection_name}
     if "duration" in document_embedding:
         doc_metadata["duration"] = document_embedding["duration"]
 
@@ -781,6 +800,7 @@ try:
         
         chunk_metadata = {
             "source": source_path,
+            "collection": collection_name,
             "source_id": document_id,
             "chunk_id": chunk_id,
             "total_chunks": len(chunks_data),

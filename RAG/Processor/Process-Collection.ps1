@@ -10,10 +10,10 @@ param(
     [string]$InstallPath = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_INSTALL_PATH", "User"),
 
     [Parameter(Mandatory=$false)]
-    [string]$VectorsApiUrl = "http://localhost:10001",
+    [int]$VectorsPort = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_VECTORS_API_PORT", "User"),
 
     [Parameter(Mandatory=$false)]
-    [string]$FileTrackerApiUrl = "http://localhost:10003/api",
+    [int]$FileTrackerPort = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_FILE_TRACKER_API_PORT", "User"),
 
     [Parameter(Mandatory=$false)]
     [int]$ChunkSize = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_CHUNK_SIZE", "User"),
@@ -240,10 +240,22 @@ if ([string]::IsNullOrWhiteSpace($InstallPath)) {
     exit 1
 }
 
+if ([string]::IsNullOrWhiteSpace($FileTrackerPort)) {
+    Write-Log "FileTrackerPort is required. Please provide it as a parameter or set the OLLAMA_RAG_FILE_TRACKER_API_PORT environment variable." -Level "ERROR"
+    exit 1
+}
+
+if ([string]::IsNullOrWhiteSpace($VectorsPort)) {
+    Write-Log "VectorsPort is required. Please provide it as a parameter or set the OLLAMA_RAG_VECTORS_API_PORT environment variable." -Level "ERROR"
+    exit 1
+}
+
+$VectorsApiUrl = "http://localhost:$VectorsPort"
+$FileTrackerApiUrl = "http://localhost:$FileTrackerPort/api"
+
 # --- Core Processing Logic (from Start-Processor.ps1) ---
 
 # Setup Logging
-$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $logsDir = Join-Path -Path $InstallPath -ChildPath "Temp"
 if (-not (Test-Path -Path $logsDir))
 {
@@ -409,6 +421,7 @@ function Add-DocumentToVectors {
         $requestBody = @{
             # Use originalFilePath for metadata if needed, but filePath for content processing
             filePath = $filePath # This is now the MD path for PDFs
+            originalFilePath = $originalFilePath # Pass original path for metadata
             fileId = $fileId
             chunkSize = $LocalChunkSize
             chunkOverlap = $LocalChunkOverlap

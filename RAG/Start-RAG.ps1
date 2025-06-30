@@ -15,13 +15,10 @@ param (
     [int]$ChunkOverlap = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_CHUNK_OVERLAP", "User") ?? 2,
 
     [Parameter(Mandatory = $false)]
-    [int]$FileTrackerPort = 10003,
+    [int]$FileTrackerPort = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_FILE_TRACKER_API_PORT", "User"),
     
     [Parameter(Mandatory = $false)]
-    [int]$ProcessorPort = 10005,
-    
-    [Parameter(Mandatory = $false)]
-    [int]$VectorsPort = 10001
+    [int]$VectorsPort = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_VECTORS_API_PORT", "User")
 )
 
 function Write-Log {
@@ -43,6 +40,18 @@ function Write-Log {
 # Validate InstallPath
 if ([string]::IsNullOrWhiteSpace($InstallPath)) {
     Write-Log "InstallPath is required. Please provide it as a parameter or set the OLLAMA_RAG_INSTALL_PATH environment variable." -Level "ERROR"
+    exit 1
+}
+
+# Validate InstallPath
+if ([string]::IsNullOrWhiteSpace($VectorsPort)) {
+    Write-Log "VectorsPort is required. Please provide it as a parameter or set the OLLAMA_RAG_VECTORS_API_PORT environment variable." -Level "ERROR"
+    exit 1
+}
+
+# Validate InstallPath
+if ([string]::IsNullOrWhiteSpace($FileTrackerPort)) {
+    Write-Log "FileTrackerPort is required. Please provide it as a parameter or set the OLLAMA_RAG_FILE_TRACKER_API_PORT environment variable." -Level "ERROR"
     exit 1
 }
 

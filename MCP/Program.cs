@@ -51,7 +51,11 @@ public class RequestData
     public int MaxResults { get; set; }
 
     [JsonPropertyName("return_content")]
-    public bool ReturContent { get; set; }
+    public bool ReturnContent { get; set; }
+
+
+    [JsonPropertyName("collectionName")]
+    public string CollectionName { get; set; }
 }
 
 
@@ -68,6 +72,9 @@ public class ChunkRequestData
 
     [JsonPropertyName("max_results")]
     public int MaxResults { get; set; }
+
+    [JsonPropertyName("collectionName")]
+    public string CollectionName { get; set; }
 
 }
 
@@ -202,40 +209,35 @@ internal static class HttpClientExt
 [McpServerToolType]
 public static class MCPs
 {
-    [McpServerTool(Name = "localDocumentsSearch"), Description("Finds the best local documents")]
-    public static string LocalDocumentsSearch(string prompt, HttpClient client, CancellationToken cancellationToken, [Description("Threashold of similarity of documents to return")] decimal threshold = 0.6m, int maxResults = 5, bool returnDocument = true)
-    {   
-        DocumentResponseData response = GetBestLocalDocument(prompt, client, threshold, maxResults, returnDocument, cancellationToken);
-
+    [McpServerTool(Name = "localDocumentsSearch"), Description("Finds the best documents in the local document collection (best matches) based on vector similarity search.")]
+    public static string LocalDocumentsSearch(string prompt, string collectionName, HttpClient client, CancellationToken cancellationToken, [Description("Threashold of similarity of documents to return")] decimal threshold = 0.6m, int maxResults = 2, bool returnDocument = true)
+    {
+        DocumentResponseData response = GetBestLocalDocument(prompt, collectionName, client, threshold, maxResults, returnDocument, cancellationToken);
         return JsonSerializer.Serialize(response);
     }
 
 
-    [McpServerTool(Name = "localChunksSearch"), Description("Finds the best local chunks")]
-    public static string LocalChunksSearch(string prompt, HttpClient client, CancellationToken cancellationToken, [Description("Threashold of similarity of chunks to return")] decimal threshold = 0.6m, int maxResults = 5, bool aggregateByDocument = false)
+    [McpServerTool(Name = "localChunksSearch"), Description("Finds the best chunks in the local document collection (best matches) based on vector similarity search")]
+    public static string LocalChunksSearch(string prompt, string collectionName, HttpClient client, CancellationToken cancellationToken, [Description("Threashold of similarity of chunks to return")] decimal threshold = 0.6m, int maxResults = 2, bool aggregateByDocument = false)
     {
-        object response = GetBestLocalChunks(prompt, client, threshold, maxResults, aggregateByDocument, cancellationToken);
-
-        var json = JsonSerializer.Serialize(response);
-        return json;
+        object response = GetBestLocalChunks(prompt, collectionName, client, threshold, maxResults, aggregateByDocument, cancellationToken);
+        return JsonSerializer.Serialize(response);
     }
 
-    private static DocumentResponseData GetBestLocalDocument(string prompt, HttpClient client, decimal threashold, int maxResults, bool returnDocument, CancellationToken cancellationToken)
+    private static DocumentResponseData GetBestLocalDocument(string prompt, string collectionName, HttpClient client, decimal threashold, int maxResults, bool returnDocument, CancellationToken cancellationToken)
     {
         var requestData = new RequestData
         {
             Query = prompt,
             Threshold = threashold,
             MaxResults = maxResults,
-            ReturContent = returnDocument
+            ReturnContent = returnDocument,
+            CollectionName = collectionName
         };
-        var urlItem = Environment.GetEnvironmentVariable("Ollama-RAG-Sync-ProxyUrl");
 
-        string url = "http://localhost:10001/api/search/documents";
-        if (urlItem != null)
-        {
-            url = urlItem;
-        }
+        var vectorPort = Environment.GetEnvironmentVariable("OLLAMA_RAG_VECTORS_API_PORT", EnvironmentVariableTarget.User);
+        string url = $"http://localhost:{vectorPort}/api/search/documents";
+
         var docTasks = client.ReadJsonDocumentsAsync(requestData, url, cancellationToken);
         var response = docTasks.Result;
 
@@ -243,22 +245,18 @@ public static class MCPs
         return response;
     }
 
-    private static object GetBestLocalChunks(string prompt, HttpClient client, decimal threashold, int maxResults, bool aggregateByDocument, CancellationToken cancellationToken)
+    private static object GetBestLocalChunks(string prompt, string collectionName, HttpClient client, decimal threashold, int maxResults, bool aggregateByDocument, CancellationToken cancellationToken)
     {
         var requestData = new ChunkRequestData
         {
             Query = prompt,
             Threshold = threashold,
             AggregateByDocument = aggregateByDocument,
-            MaxResults = maxResults
+            MaxResults = maxResults,
+            CollectionName = collectionName
         };
-        var urlItem = Environment.GetEnvironmentVariable("Ollama-RAG-Sync-ProxyUrl");
-
-        string url = "http://localhost:10001/api/search/chunks";
-        if (urlItem != null)
-        {
-            url = urlItem;
-        }
+        var vectorPort = Environment.GetEnvironmentVariable("OLLAMA_RAG_VECTORS_API_PORT", EnvironmentVariableTarget.User);
+        string url = $"http://localhost:{vectorPort}/api/search/chunks";
 
         if (requestData.AggregateByDocument)
         {

@@ -155,7 +155,10 @@ function Query-VectorDocuments {
         [hashtable]$WhereFilter = @{},
 
         [Parameter(Mandatory=$false)]
-        [switch]$ReturnSourceContent
+        [switch]$ReturnSourceContent,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$CollectionName = "default"
     )
     
     $config = Get-VectorsConfig
@@ -284,8 +287,10 @@ try:
         settings=Settings(anonymized_telemetry=False)
     )
     
-    # Get the document collection
-    collection = chroma_client.get_collection(name="document_collection")
+    # Get the document collection with dynamic name
+    collection_name = r"$CollectionName"
+    doc_collection_name = f"{collection_name}_documents"
+    collection = chroma_client.get_collection(name=doc_collection_name)
     
     # Perform query
     print(f"INFO:Querying document collection with filter: {where_filter}")
@@ -422,7 +427,10 @@ function Query-VectorChunks {
         [hashtable]$WhereFilter = @{},
         
         [Parameter(Mandatory=$false)]
-        [switch]$AggregateByDocument
+        [switch]$AggregateByDocument,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$CollectionName = "default"
     )
     
     $config = Get-VectorsConfig
@@ -554,8 +562,10 @@ try:
         settings=Settings(anonymized_telemetry=False)
     )
     
-    # Get the chunks collection
-    collection = chroma_client.get_collection(name="document_chunks_collection")
+    # Get the chunks collection with dynamic name
+    collection_name = r"$CollectionName"
+    chunks_collection_name = f"{collection_name}_chunks"
+    collection = chroma_client.get_collection(name=chunks_collection_name)
     
     # Adjust max_results for aggregation
     query_limit = max_results
@@ -734,7 +744,10 @@ function Remove-VectorDocument {
         [string]$FilePath,
         
         [Parameter(Mandatory=$false, ParameterSetName="ById")]
-        [string]$DocumentId
+        [string]$DocumentId,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$CollectionName = "default"
     )
     
     $config = Get-VectorsConfig
@@ -769,11 +782,16 @@ try:
         settings=Settings(anonymized_telemetry=False)
     )
     
+    # Get collections with dynamic names
+    collection_name = r"$CollectionName"
+    doc_collection_name = f"{collection_name}_documents"
+    chunks_collection_name = f"{collection_name}_chunks"
+    
     # Get the document collection
-    doc_collection = chroma_client.get_collection(name="document_collection")
+    doc_collection = chroma_client.get_collection(name=doc_collection_name)
     
     # Get the chunks collection
-    chunks_collection = chroma_client.get_collection(name="document_chunks_collection")
+    chunks_collection = chroma_client.get_collection(name=chunks_collection_name)
     
     # Remove from document collection
     if "$whereClause":

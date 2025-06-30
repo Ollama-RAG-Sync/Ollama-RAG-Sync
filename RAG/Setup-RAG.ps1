@@ -12,7 +12,13 @@ param (
     [int]$ChunkSize = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_CHUNK_SIZE", "User") ?? 20,
 
     [Parameter(Mandatory = $false)]
-    [int]$ChunkOverlap = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_CHUNK_OVERLAP", "User") ?? 2
+    [int]$ChunkOverlap = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_CHUNK_OVERLAP", "User") ?? 2,
+
+    [Parameter(Mandatory = $false)]
+    [int]$FileTrackerPort = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_FILE_TRACKER_API_PORT", "User") ??  "10003",
+
+    [Parameter(Mandatory = $false)]
+    [int]$VectorsPort = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_VECTORS_API_PORT", "User") ?? "10001"
 )
 
 # Function to log messages
@@ -52,6 +58,8 @@ Write-Log "Saving configuration as environment variables..." -Level "INFO"
 [System.Environment]::SetEnvironmentVariable("OLLAMA_RAG_URL", $OllamaUrl, "User")
 [System.Environment]::SetEnvironmentVariable("OLLAMA_RAG_CHUNK_SIZE", $ChunkSize, "User")
 [System.Environment]::SetEnvironmentVariable("OLLAMA_RAG_CHUNK_OVERLAP", $ChunkOverlap, "User")
+[System.Environment]::SetEnvironmentVariable("OLLAMA_RAG_FILE_TRACKER_API_PORT", $FileTrackerPort, "User")
+[System.Environment]::SetEnvironmentVariable("OLLAMA_RAG_VECTORS_API_PORT", $VectorsPort, "User")
 Write-Log "Environment variables saved successfully" -Level "INFO"
 
 # Install required packages if not already installed

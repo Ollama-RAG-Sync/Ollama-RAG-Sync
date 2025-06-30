@@ -10,7 +10,7 @@ param (
     [string]$ListenAddress = "localhost", # Pode uses this in Start-PodeServer -Endpoint
     
     [Parameter(Mandatory=$false)]
-    [int]$Port = 10001,
+    [int]$Port = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_VECTORS_API_PORT", "User") ?? 10001,
 
     [Parameter(Mandatory=$false)]
     [string]$OllamaUrl = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_URL", "User") ?? "http://localhost:11434", # Ollama API URL
@@ -23,6 +23,9 @@ param (
     
     [Parameter(Mandatory=$false)]
     [int]$DefaultChunkOverlap = 2,  # Number of lines to overlap between chunks
+    
+    [Parameter(Mandatory=$false)]
+    [string]$DefaultCollectionName = "default",  # Default collection name
     
     [Parameter(Mandatory=$false)]
     [switch]$UseHttps, # Pode handles HTTPS via Start-PodeServer -Endpoint options
@@ -95,6 +98,9 @@ function Add-Document {
     param (
         [Parameter(Mandatory=$true)]
         [string]$FilePath,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$OriginalFilePath,
 
         [Parameter(Mandatory=$true)]
         [string]$ChromaDbPath,
@@ -115,15 +121,20 @@ function Add-Document {
         [int]$ChunkOverlap = $using:DefaultChunkOverlap, # Use script-level default
         
         [Parameter(Mandatory=$false)]
-        [string]$ContentType = "Text"
+        [string]$ContentType = "Text",
+        
+        [Parameter(Mandatory=$false)]
+        [string]$CollectionName = $using:DefaultCollectionName # Use script-level default
     )
     
     try {
-        Write-Log "Adding document to vectors: $FilePath (ID: $FileId)"
+        Write-Log "Adding document to vectors: $FilePath (ID: $FileId, Collection: $CollectionName)"
         
         # Set parameters for Add-DocumentToVectors.ps1
         $params = @{
             FilePath = $FilePath
+            OriginalFilePath = $OriginalFilePath
+            CollectionName = $CollectionName
             # FileId is not used by Add-DocumentToVectors.ps1 but kept for logging/response
         }
         
@@ -149,16 +160,16 @@ function Add-Document {
         $result = & $addDocumentScript @params
         
         if ($result) {
-            Write-Log "Successfully added document to vectors: $FilePath" 
-            return @{ success = $true; message = "Document added successfully"; filePath = $FilePath; fileId = $FileId }
+            Write-Log "Successfully added document to vectors: $FilePath (Collection: $CollectionName)" 
+            return @{ success = $true; message = "Document added successfully"; filePath = $FilePath; fileId = $FileId; collectionName = $CollectionName }
         } else {
-            Write-Log "Failed to add document to vectors: $FilePath" -Level "ERROR"
-            return @{ success = $false; error = "Failed to add document to vectors"; filePath = $FilePath; fileId = $FileId }
+            Write-Log "Failed to add document to vectors: $FilePath (Collection: $CollectionName)" -Level "ERROR"
+            return @{ success = $false; error = "Failed to add document to vectors"; filePath = $FilePath; fileId = $FileId; collectionName = $CollectionName }
         }
     }
     catch {
         Write-Log "Error adding document to vectors: $_ $($_.ScriptStackTrace)" -Level "ERROR"
-        return @{ success = $false; error = $_.ToString(); filePath = $FilePath; fileId = $FileId }
+        return @{ success = $false; error = $_.ToString(); filePath = $FilePath; fileId = $FileId; collectionName = $CollectionName }
     }
 }
 
@@ -169,15 +180,19 @@ function Remove-Document {
         [string]$FilePath,
         
         [Parameter(Mandatory=$false)]
-        [int]$FileId = 0 # Kept for logging/response consistency
+        [int]$FileId = 0, # Kept for logging/response consistency
+        
+        [Parameter(Mandatory=$false)]
+        [string]$CollectionName = $using:DefaultCollectionName # Use script-level default
     )
     
     try {
-        Write-Log "Removing document from vectors: $FilePath (ID: $FileId)"  
+        Write-Log "Removing document from vectors: $FilePath (ID: $FileId, Collection: $CollectionName)"  
         
         # Set parameters for Remove-DocumentFromVectors.ps1
         $params = @{
             FilePath = $FilePath
+            CollectionName = $CollectionName
             ChromaDbPath = $using:chromaDbPath
             OllamaUrl = $using:OllamaUrl
             EmbeddingModel = $using:EmbeddingModel
@@ -188,24 +203,24 @@ function Remove-Document {
         $result = & $removeDocumentScript @params
         
         if ($result) {
-            Write-Log "Successfully removed document from vectors: $FilePath"  
-            return @{ success = $true; message = "Document removed successfully"; filePath = $FilePath; fileId = $FileId }
+            Write-Log "Successfully removed document from vectors: $FilePath (Collection: $CollectionName)"  
+            return @{ success = $true; message = "Document removed successfully"; filePath = $FilePath; fileId = $FileId; collectionName = $CollectionName }
         } else {
-            Write-Log "Failed to remove document from vectors: $FilePath" -Level "ERROR"  
+            Write-Log "Failed to remove document from vectors: $FilePath (Collection: $CollectionName)" -Level "ERROR"  
             # Check if the error was 'not found' vs other failure
             if ($_.Exception.Message -like "*No vectors found for file*") {
-                 return @{ success = $false; error = "Document not found in vectors"; filePath = $FilePath; fileId = $FileId; notFound = $true }
+                 return @{ success = $false; error = "Document not found in vectors"; filePath = $FilePath; fileId = $FileId; collectionName = $CollectionName; notFound = $true }
             } else {
-                 return @{ success = $false; error = "Failed to remove document from vectors"; filePath = $FilePath; fileId = $FileId }
+                 return @{ success = $false; error = "Failed to remove document from vectors"; filePath = $FilePath; fileId = $FileId; collectionName = $CollectionName }
             }
         }
     }
     catch {
         Write-Log "Error removing document from vectors: $_" -Level "ERROR"  
          if ($_.Exception.Message -like "*No vectors found for file*") {
-             return @{ success = $false; error = "Document not found in vectors: $($_.Exception.Message)"; filePath = $FilePath; fileId = $FileId; notFound = $true }
+             return @{ success = $false; error = "Document not found in vectors: $($_.Exception.Message)"; filePath = $FilePath; fileId = $FileId; collectionName = $CollectionName; notFound = $true }
          } else {
-            return @{ success = $false; error = $_.ToString(); filePath = $FilePath; fileId = $FileId }
+            return @{ success = $false; error = $_.ToString(); filePath = $FilePath; fileId = $FileId; collectionName = $CollectionName }
          }
     }
 }
@@ -232,11 +247,17 @@ function Search-Chunks {
         [string]$EmbeddingModel,
 
         [Parameter(Mandatory=$false)]
-        [switch]$AggregateByDocument
+        [switch]$AggregateByDocument,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$CollectionName = $using:DefaultCollectionName, # Use script-level default
+        
+        [Parameter(Mandatory=$false)]
+        [hashtable]$WhereFilter = @{}
     )
     
     try {
-        Write-Log "Searching chunks for query: $Query"  
+        Write-Log "Searching chunks for query: $Query (Collection: $CollectionName)"  
 
         # Set parameters for Get-ChunksByQuery.ps1
         $params = @{
@@ -247,26 +268,33 @@ function Search-Chunks {
             OllamaUrl = $OllamaUrl
             EmbeddingModel = $EmbeddingModel
             AggregateByDocument = $AggregateByDocument
+            CollectionName = $CollectionName
         }
-        if (($WhereFilter -ne $null) -and ($WhereFilter.Count -gt 0)) { $params.WhereFilter = $WhereFilter }
+        
+        # Add collection filter to WhereFilter if specified
+        if (-not [string]::IsNullOrEmpty($CollectionName)) {
+            $WhereFilter.collection = $CollectionName
+        }
+        
+        if (($null -ne $WhereFilter) -and ($WhereFilter.Count -gt 0)) { $params.WhereFilter = $WhereFilter }
 
         # Call Get-ChunksByQuery.ps1
         $searchScript = Join-Path -Path ".\Functions" -ChildPath "Get-ChunksByQuery.ps1"
         $results = & $searchScript @params
 
-        if ($results -ne $null)
+        if ($null -ne $results)
         {
-            return @{ success = $true; results = $results; count = $results.Count; query = $Query }
+            return @{ success = $true; results = $results; count = $results.Count; query = $Query; collectionName = $CollectionName }
         }
         else 
         {
-            Write-Log "No matching chunks found for query: $Query" -Level "INFO"  
-            return @{ success = $true; results = @(); count = 0; query = $Query }
+            Write-Log "No matching chunks found for query: $Query (Collection: $CollectionName)" -Level "INFO"  
+            return @{ success = $true; results = @(); count = 0; query = $Query; collectionName = $CollectionName }
         }
     }
     catch {
         Write-Log "Error searching chunks: $_" -Level "ERROR"    
-        return @{ success = $false; error = $_.ToString(); results = @(); count = 0; query = $Query }
+        return @{ success = $false; error = $_.ToString(); results = @(); count = 0; query = $Query; collectionName = $CollectionName }
     }
 }
 
@@ -295,11 +323,19 @@ function Search-Documents {
         [string]$OllamaUrl,
 
         [Parameter(Mandatory=$true)]
-        [string]$EmbeddingModel
+        [string]$EmbeddingModel,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$CollectionName = $using:DefaultCollectionName # Use script-level default
     )
     
     try {
-        Write-Log "Searching documents for query: $Query"  
+        Write-Log "Searching documents for query: $Query (Collection: $CollectionName)"  
+        
+        # Add collection filter to WhereFilter if specified
+        if (-not [string]::IsNullOrEmpty($CollectionName)) {
+            $WhereFilter.collection = $CollectionName
+        }
         
         # Set parameters for Get-DocumentsByQuery.ps1
         $params = @{
@@ -310,23 +346,24 @@ function Search-Documents {
             ChromaDbPath = $ChromaDbPath
             OllamaUrl = $OllamaUrl
             EmbeddingModel = $EmbeddingModel
+            CollectionName = $CollectionName
         }
         
-        if (($WhereFilter -ne $null) -and ($WhereFilter.Count -gt 0)) { $params.WhereFilter = $WhereFilter }
+        if (($null -ne $WhereFilter) -and ($WhereFilter.Count -gt 0)) { $params.WhereFilter = $WhereFilter }
         
         # Call Get-DocumentsByQuery.ps1
         $searchScript = Join-Path -Path ".\Functions" -ChildPath "Get-DocumentsByQuery.ps1"
         $results = & $searchScript @params
 
         if ($null -ne $results) {
-            Write-Log "Found $($results.Count) matching documents for query: $Query"  
-            return @{ success = $true; results = $results; count = $results.Count; query = $Query }
+            Write-Log "Found $($results.Count) matching documents for query: $Query (Collection: $CollectionName)"  
+            return @{ success = $true; results = $results; count = $results.Count; query = $Query; collectionName = $CollectionName }
        }
-       return @{ success = $true; results = @(); count = 0; query = $Query }
+       return @{ success = $true; results = @(); count = 0; query = $Query; collectionName = $CollectionName }
     }
     catch {
         Write-Log "Error searching documents: $_" -Level "ERROR"  
-        return @{ success = $false; error = $_.ToString(); results = @(); count = 0; query = $Query }
+        return @{ success = $false; error = $_.ToString(); results = @(); count = 0; query = $Query; collectionName = $CollectionName }
     }
 }
 
@@ -345,6 +382,7 @@ try {
     Write-Log "ChromaDB Path: $ChromaDbPath"  
     Write-Log "Ollama URL: $OllamaUrl"  
     Write-Log "Embedding model: $EmbeddingModel"  
+    Write-Log "Default collection name: $DefaultCollectionName"  
 
     Start-PodeServer -Threads 4 {
 
@@ -366,12 +404,13 @@ try {
                 status = "ok"
                 message = "Vectors API server running"
                 routes = @(
-                    "/documents - POST: Add a document to vectors",
-                    "/documents - DELETE: Remove a document from vectors (use filePath in body)",
-                    "/api/search/chunks - POST: Search for relevant chunks",
-                    "/api/search/documents - POST: Search for relevant documents",
+                    "/documents - POST: Add a document to vectors (supports collectionName parameter)",
+                    "/documents - DELETE: Remove a document from vectors (use filePath and optional collectionName in body)",
+                    "/api/search/chunks - POST: Search for relevant chunks (supports collectionName parameter)",
+                    "/api/search/documents - POST: Search for relevant documents (supports collectionName parameter)",
                     "/status - GET: Get server status"
                 )
+                defaultCollectionName = $using:DefaultCollectionName
             }
         } 
 
@@ -384,6 +423,7 @@ try {
                 embeddingModel = $using:EmbeddingModel
                 defaultChunkSize = $using:DefaultChunkSize
                 defaultChunkOverlap = $using:DefaultChunkOverlap
+                defaultCollectionName = $using:DefaultCollectionName
             }
         }
         # POST /documents - Add document
@@ -395,16 +435,18 @@ try {
                 }
                 
                 $filePath = $data.filePath
+                $originalFilePath = $data.originalFilePath
                 $fileId = if ($null -ne $data.fileId) { $data.fileId } else { 0 }
                 $chunkSize = if ($null -ne $data.chunkSize) { $data.chunkSize } else { $using:DefaultChunkSize }
                 $chunkOverlap = if ($null -ne $data.chunkOverlap) { $data.chunkOverlap } else { $using:DefaultChunkOverlap }
                 $contentType = if ($null -ne $data.contentType) { $data.contentType } else { "Text" }
+                $collectionName = if ($null -ne $data.collectionName -and -not [string]::IsNullOrEmpty($data.collectionName)) { $data.collectionName } else { $using:DefaultCollectionName }
 
                 $chromaDbPath  = $using:chromaDbPath
                 $ollamaUrl = $using:OllamaUrl
                 $embeddingModel = $using:EmbeddingModel
 
-                $result = Add-Document -ChromaDbPath $chromaDbPath -OllamaUrl $ollamaUrl -Embedding $embeddingModel -FilePath $filePath -FileId $fileId -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -ContentType $contentType  
+                $result = Add-Document -OriginalFilePath $originalFilePath -ChromaDbPath $chromaDbPath -OllamaUrl $ollamaUrl -EmbeddingModel $embeddingModel -FilePath $filePath -FileId $fileId -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -ContentType $contentType -CollectionName $collectionName  
                 
                 if ($result.success) {
                     Write-PodeJsonResponse -Value $result
@@ -427,8 +469,9 @@ try {
 
                 $filePath = $data.filePath
                 $fileId = if ($null -ne $data.fileId) { $data.fileId } else { 0 } # Optional fileId from body
+                $collectionName = if ($null -ne $data.collectionName -and -not [string]::IsNullOrEmpty($data.collectionName)) { $data.collectionName } else { $using:DefaultCollectionName }
 
-                $result = Remove-Document -FilePath $filePath -FileId $fileId
+                $result = Remove-Document -FilePath $filePath -FileId $fileId -CollectionName $collectionName
                 
                 if ($result.success) {
                     Write-PodeJsonResponse -Value $result
@@ -455,7 +498,10 @@ try {
                 $maxResults = if ($null -ne $data.max_results) { $data.max_results } else { 10 }
                 $threshold = if ($null -ne $data.threshold) { $data.threshold } else { 0.0 }
                 $aggregateByDocument = if ($null -ne $data.aggregateByDocument) { $data.aggregateByDocument } else { $false }
-                $result = Search-Chunks -ChromaDbPath $using:chromaDbPath -OllamaUrl $using:ollamaUrl -EmbeddingModel $using:embeddingModel -Query $query -MaxResults $maxResults -MinScore $threshold -AggregateByDocument:$aggregateByDocument
+                $collectionName = if ($null -ne $data.collectionName -and -not [string]::IsNullOrEmpty($data.collectionName)) { $data.collectionName } else { $using:DefaultCollectionName }
+                $whereFilter = if ($null -ne $data.filter) { $data.filter } else { @{} }
+                
+                $result = Search-Chunks -ChromaDbPath $using:chromaDbPath -OllamaUrl $using:ollamaUrl -EmbeddingModel $using:embeddingModel -Query $query -MaxResults $maxResults -MinScore $threshold -AggregateByDocument:$aggregateByDocument -CollectionName $collectionName -WhereFilter $whereFilter
                 
                 Write-PodeJsonResponse -Value $result
             } catch {
@@ -477,7 +523,9 @@ try {
                 $threshold = if ($null -ne $data.threshold) { $data.threshold } else { 0.5 }
                 $returnContent = if ($null -ne $data.return_content) { $data.return_content } else { $false }
                 $whereFilter = if ($null -ne $data.filter) { $data.filter } else { @{} }
-                $result = Search-Documents -ChromaDbPath $using:chromaDbPath -OllamaUrl $using:ollamaUrl -EmbeddingModel $using:embeddingModel -Query $query -MaxResults $maxResults -MinScore $threshold -ReturnSourceContent $returnContent -WhereFilter $whereFilter
+                $collectionName = if ($null -ne $data.collectionName -and -not [string]::IsNullOrEmpty($data.collectionName)) { $data.collectionName } else { $using:DefaultCollectionName }
+                
+                $result = Search-Documents -ChromaDbPath $using:chromaDbPath -OllamaUrl $using:ollamaUrl -EmbeddingModel $using:embeddingModel -Query $query -MaxResults $maxResults -MinScore $threshold -ReturnSourceContent $returnContent -WhereFilter $whereFilter -CollectionName $collectionName
 
                 if ($result.success) {
                     Write-PodeJsonResponse -Value $result

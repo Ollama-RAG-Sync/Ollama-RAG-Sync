@@ -1,5 +1,5 @@
-# Get-ChunksByQuery.ps1
-# Query the vector database for similar document chunks
+# Get-DocumentsByQuery.ps1
+# Query the vector database for similar documents
 
 param(
     [Parameter(Mandatory=$true)]
@@ -15,17 +15,21 @@ param(
     [hashtable]$WhereFilter = @{},
     
     [Parameter(Mandatory=$false)]
-    [switch]$AggregateByDocument,
-    
-    [Parameter(Mandatory=$false)]
     [string]$ChromaDbPath,
     
     [Parameter(Mandatory=$false)]
     [string]$OllamaUrl,
     
     [Parameter(Mandatory=$false)]
-    [string]$EmbeddingModel
+    [string]$EmbeddingModel,
+    
+    [Parameter(Mandatory=$false)]
+    [switch]$ReturnSourceContent,
+    
+    [Parameter(Mandatory=$false)]
+    [string]$CollectionName = "default"
 )
+
 # Initialize configuration with overrides
 $configOverrides = @{}
 
@@ -54,15 +58,15 @@ $parameters = @{
     QueryText = $QueryText
     MaxResults = $MaxResults
     MinScore = $MinScore
+    ReturnSourceContent = $ReturnSourceContent
+    CollectionName = $CollectionName
 }
 
 if ($WhereFilter.Count -gt 0) {
     $parameters.WhereFilter = $WhereFilter
 }
 
-if ($AggregateByDocument) {
-    $parameters.AggregateByDocument = $true
-}
+$results = Query-VectorDocuments @parameters
 
-$results = Query-VectorChunks @parameters
+# Return the results
 return Write-Output -InputObject $results -NoEnumerate

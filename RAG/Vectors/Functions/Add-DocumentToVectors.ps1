@@ -2,6 +2,9 @@
 param(
     [Parameter(Mandatory=$true)]
     [string]$FilePath,
+
+    [Parameter(Mandatory=$true)]
+    [string]$OriginalFilePath,
     
     [Parameter(Mandatory=$false)]
     [int]$ChunkSize = 0,
@@ -16,7 +19,10 @@ param(
     [string]$OllamaUrl,
     
     [Parameter(Mandatory=$false)]
-    [string]$EmbeddingModel
+    [string]$EmbeddingModel,
+    
+    [Parameter(Mandatory=$false)]
+    [string]$CollectionName = "default"
 )
 
 try
@@ -52,6 +58,7 @@ try
     # Add document to vector store
     $parameters = @{
         FilePath = $FilePath
+        CollectionName = $CollectionName
     }
 
     if ($ChunkSize -gt 0) {
@@ -65,6 +72,7 @@ try
 
     if ($result) {
         Write-VectorsLog -Message "Document added successfully to vector store: $FilePath" -Level "Info"
+        Write-VectorsLog -Message "Based on: $OriginalFilePath" -Level "Info"
     } else {
         Write-VectorsLog -Message "Failed to add document to vector store: $FilePath" -Level "Error"
     }   
