@@ -55,7 +55,7 @@ param(
 # Check if environment variable is set for Vectors API URL
 
 if ([string]::IsNullOrWhiteSpace($VectorsPort)) {
-    Write-Log "VectorsPort is required. Please provide it as a parameter or set the OLLAMA_RAG_VECTORS_API_PORT environment variable." -Level "ERROR"
+    Write-Error "VectorsPort is required. Please provide it as a parameter or set the OLLAMA_RAG_VECTORS_API_PORT environment variable."
     exit 1
 }
 $VectorsApiUrl = "http://localhost:$VectorsPort/api/search/chunks"

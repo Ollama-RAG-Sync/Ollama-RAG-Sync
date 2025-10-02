@@ -48,7 +48,7 @@ param(
 #>
 
 if ([string]::IsNullOrWhiteSpace($VectorsPort)) {
-    Write-Log "VectorsPort is required. Please provide it as a parameter or set the OLLAMA_RAG_VECTORS_API_PORT environment variable." -Level "ERROR"
+    Write-Error "VectorsPort is required. Please provide it as a parameter or set the OLLAMA_RAG_VECTORS_API_PORT environment variable."
     exit 1
 }
 $VectorsApiUrl = "http://localhost:$VectorsPort/api/search/documents"

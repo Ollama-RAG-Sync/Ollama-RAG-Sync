@@ -14,7 +14,7 @@ param (
 
 # Validate InstallPath
 if ([string]::IsNullOrWhiteSpace($InstallPath)) {
-    Write-Log "InstallPath is required. Please provide it as a parameter or set the OLLAMA_RAG_INSTALL_PATH environment variable." -Level "ERROR"
+    Write-Error "InstallPath is required. Please provide it as a parameter or set the OLLAMA_RAG_INSTALL_PATH environment variable."
     exit 1
 }
 
@@ -42,13 +42,14 @@ $initScript = Join-Path -Path $scriptParentPath -ChildPath "Initialize-Database.
 & $initScript -InstallPath $InstallPath
 
 # Create a new collection
-Write-Host "Creating collection '$CollectionName'..." -ForegroundColor Cyan
+Write-Host "Checking collection '$CollectionName'..." -ForegroundColor Cyan
 $collection = Get-CollectionByName -Name $CollectionName -InstallPath $InstallPath
 
 if ($null -eq $collection) {
+    Write-Host "Creating new collection..." -ForegroundColor Green
     $collection = New-Collection -Name $CollectionName -Description $Description -SourceFolder $FolderPath -InstallPath $InstallPath -DatabasePath $DatabasePath
 } else {
-    Write-Host "Creating new collection..." -ForegroundColor Green
+    Write-Host "Collection already exists. Using existing collection." -ForegroundColor Yellow
 }
 
 if (-not $collection) {

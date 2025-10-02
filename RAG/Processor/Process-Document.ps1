@@ -26,10 +26,10 @@ param(
     [Parameter(Mandatory=$false)]
     [int]$FileTrackerPort = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_FILE_TRACKER_API_PORT", "User"),
 
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory=$false)]
     [int]$ChunkSize = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_CHUNK_SIZE", "User"),
 
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory=$false)]
     [int]$ChunkOverlap = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_CHUNK_OVERLAP", "User"),
 
     [Parameter(Mandatory=$false)]
