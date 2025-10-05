@@ -1,6 +1,4 @@
 # Ollama-RAG-Sync
-
-[![CI/CD](https://github.com/your-username/Ollama-RAG-Sync/workflows/CI/CD%20Pipeline/badge.svg)](https://github.com/your-username/Ollama-RAG-Sync/actions)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.0+-blue.svg)](https://github.com/PowerShell/PowerShell)
 [![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg)](https://dotnet.microsoft.com/)
