@@ -184,6 +184,426 @@ The system uses environment variables for configuration:
 .\RAG\Search\Get-BestChunks.ps1 -Query "API documentation" -CollectionName "MyDocs"
 ```
 
+### Complete Usage Examples
+
+#### Example 1: Setting Up a Technical Documentation Library
+
+```powershell
+# Step 1: Create and populate a technical documentation collection
+.\RAG\FileTracker\Add-Folder.ps1 `
+    -CollectionName "TechLibrary" `
+    -FolderPath "C:\Projects\Documentation"
+
+# Step 2: Verify files were tracked
+$files = .\RAG\FileTracker\Get-CollectionFiles.ps1 -CollectionName "TechLibrary"
+Write-Host "Tracked $($files.Count) files"
+
+# Step 3: Process all documents with custom chunking
+.\RAG\Processor\Process-Collection.ps1 `
+    -CollectionName "TechLibrary" `
+    -ChunkSize 25 `
+    -ChunkOverlap 3
+
+# Step 4: Search for specific technical topics
+$results = .\RAG\Search\Get-BestDocuments.ps1 `
+    -Query "REST API authentication methods" `
+    -CollectionName "TechLibrary" `
+    -Threshold 0.7 `
+    -MaxResults 5
+
+# Display results
+foreach ($doc in $results.results) {
+    Write-Host "`n=== $($doc.document_name) ==="
+    Write-Host "Similarity: $($doc.similarity)"
+    Write-Host "Preview: $($doc.content.Substring(0, [Math]::Min(200, $doc.content.Length)))..."
+}
+```
+
+#### Example 2: Research Paper Analysis
+
+```powershell
+# Create a research papers collection
+.\RAG\FileTracker\Add-Folder.ps1 `
+    -CollectionName "ResearchPapers" `
+    -FolderPath "C:\Research\Papers"
+
+# Process with larger chunks for academic content
+.\RAG\Processor\Process-Collection.ps1 `
+    -CollectionName "ResearchPapers" `
+    -ChunkSize 40 `
+    -ChunkOverlap 5
+
+# Find papers discussing specific methodologies
+$methodologySearch = .\RAG\Search\Get-BestChunks.ps1 `
+    -Query "machine learning model evaluation metrics" `
+    -CollectionName "ResearchPapers" `
+    -Threshold 0.8 `
+    -MaxResults 10 `
+    -AggregateByDocument $true
+
+# Export results for further analysis
+$methodologySearch.results | Export-Csv -Path "C:\Results\methodology_findings.csv" -NoTypeInformation
+```
+
+#### Example 3: Code Documentation Search
+
+```powershell
+# Track multiple code repositories
+$repos = @(
+    @{Name="Backend"; Path="C:\Projects\Backend\docs"},
+    @{Name="Frontend"; Path="C:\Projects\Frontend\docs"},
+    @{Name="Mobile"; Path="C:\Projects\Mobile\docs"}
+)
+
+foreach ($repo in $repos) {
+    .\RAG\FileTracker\Add-Folder.ps1 `
+        -CollectionName $repo.Name `
+        -FolderPath $repo.Path
+    
+    .\RAG\Processor\Process-Collection.ps1 `
+        -CollectionName $repo.Name
+}
+
+# Search across all repositories
+function Search-AllRepos {
+    param([string]$Query)
+    
+    $allResults = @()
+    foreach ($repo in $repos) {
+        $results = .\RAG\Search\Get-BestDocuments.ps1 `
+            -Query $Query `
+            -CollectionName $repo.Name `
+            -MaxResults 3 `
+            -ReturnContent $false
+        
+        if ($results.success) {
+            foreach ($result in $results.results) {
+                $allResults += [PSCustomObject]@{
+                    Repository = $repo.Name
+                    Document = $result.document_name
+                    Similarity = $result.similarity
+                }
+            }
+        }
+    }
+    
+    return $allResults | Sort-Object Similarity -Descending
+}
+
+# Use the function
+$apiDocs = Search-AllRepos -Query "GraphQL API implementation"
+$apiDocs | Format-Table
+```
+
+#### Example 4: Monitoring and Auto-Processing New Files
+
+```powershell
+# Create a collection with automatic monitoring
+.\RAG\FileTracker\Add-Folder.ps1 `
+    -CollectionName "LiveDocs" `
+    -FolderPath "C:\SharePoint\Sync\Documents"
+
+# Set up a scheduled task for auto-processing (runs every hour)
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Hours 1)
+$action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument @"
+-NoProfile -Command "& {
+    . 'C:\OllamaRAG\RAG\FileTracker\Refresh-Collection.ps1' -CollectionName 'LiveDocs'
+    . 'C:\OllamaRAG\RAG\Processor\Process-Collection.ps1' -CollectionName 'LiveDocs'
+}"
+"@
+
+Register-ScheduledTask -TaskName "RAG-AutoProcess-LiveDocs" -Trigger $trigger -Action $action
+
+# Manual refresh and process when needed
+.\RAG\FileTracker\Refresh-Collection.ps1 -CollectionName "LiveDocs"
+.\RAG\Processor\Process-Collection.ps1 -CollectionName "LiveDocs"
+```
+
+#### Example 5: Comparative Analysis Across Time
+
+```powershell
+# Create version-based collections
+.\RAG\FileTracker\Add-Folder.ps1 `
+    -CollectionName "Docs_v1" `
+    -FolderPath "C:\Projects\Docs\v1.0"
+
+.\RAG\FileTracker\Add-Folder.ps1 `
+    -CollectionName "Docs_v2" `
+    -FolderPath "C:\Projects\Docs\v2.0"
+
+# Process both versions
+@("Docs_v1", "Docs_v2") | ForEach-Object {
+    .\RAG\Processor\Process-Collection.ps1 -CollectionName $_
+}
+
+# Compare search results across versions
+$query = "security best practices"
+
+$v1Results = .\RAG\Search\Get-BestDocuments.ps1 `
+    -Query $query `
+    -CollectionName "Docs_v1" `
+    -MaxResults 5
+
+$v2Results = .\RAG\Search\Get-BestDocuments.ps1 `
+    -Query $query `
+    -CollectionName "Docs_v2" `
+    -MaxResults 5
+
+# Analyze differences
+Write-Host "`n=== Version 1.0 Coverage ==="
+$v1Results.results | Select-Object document_name, similarity | Format-Table
+
+Write-Host "`n=== Version 2.0 Coverage ==="
+$v2Results.results | Select-Object document_name, similarity | Format-Table
+```
+
+#### Example 6: Building a Q&A System with Context
+
+```powershell
+# Create a knowledge base
+.\RAG\FileTracker\Add-Folder.ps1 `
+    -CollectionName "KnowledgeBase" `
+    -FolderPath "C:\Company\KnowledgeBase"
+
+.\RAG\Processor\Process-Collection.ps1 -CollectionName "KnowledgeBase"
+
+# Function to get contextual answers
+function Get-ContextualAnswer {
+    param(
+        [string]$Question,
+        [string]$Collection = "KnowledgeBase",
+        [int]$ContextChunks = 5
+    )
+    
+    # Get relevant context
+    $context = .\RAG\Search\Get-BestChunks.ps1 `
+        -Query $Question `
+        -CollectionName $Collection `
+        -MaxResults $ContextChunks `
+        -Threshold 0.6
+    
+    if (-not $context.success -or $context.results.Count -eq 0) {
+        return "No relevant context found."
+    }
+    
+    # Combine context for AI processing
+    $contextText = ($context.results | ForEach-Object { $_.content }) -join "`n`n---`n`n"
+    
+    # Return structured response
+    return [PSCustomObject]@{
+        Question = $Question
+        RelevantSources = $context.results.document_name | Select-Object -Unique
+        Context = $contextText
+        ChunkCount = $context.results.Count
+    }
+}
+
+# Use the Q&A system
+$answer = Get-ContextualAnswer -Question "How do I configure SSL certificates?"
+Write-Host "Sources: $($answer.RelevantSources -join ', ')"
+Write-Host "`nContext:`n$($answer.Context)"
+```
+
+#### Example 7: Batch Processing Multiple Collections
+
+```powershell
+# Define multiple collections to process
+$collections = @(
+    @{Name="CustomerDocs"; Path="C:\Data\Customers"; ChunkSize=20},
+    @{Name="EmployeeHandbook"; Path="C:\HR\Handbook"; ChunkSize=30},
+    @{Name="Policies"; Path="C:\Legal\Policies"; ChunkSize=25}
+)
+
+# Batch setup and processing
+foreach ($col in $collections) {
+    Write-Host "`n=== Processing $($col.Name) ===" -ForegroundColor Cyan
+    
+    # Add collection
+    .\RAG\FileTracker\Add-Folder.ps1 `
+        -CollectionName $col.Name `
+        -FolderPath $col.Path
+    
+    # Process with custom chunk size
+    .\RAG\Processor\Process-Collection.ps1 `
+        -CollectionName $col.Name `
+        -ChunkSize $col.ChunkSize
+    
+    # Verify
+    $status = .\RAG\FileTracker\Get-CollectionFiles.ps1 -CollectionName $col.Name
+    Write-Host "Processed $($status.Count) files" -ForegroundColor Green
+}
+
+# Cross-collection search
+function Search-AllCollections {
+    param([string]$Query)
+    
+    $allResults = @()
+    foreach ($col in $collections) {
+        $results = .\RAG\Search\Get-BestDocuments.ps1 `
+            -Query $Query `
+            -CollectionName $col.Name `
+            -MaxResults 2
+        
+        if ($results.success) {
+            $allResults += $results.results | ForEach-Object {
+                [PSCustomObject]@{
+                    Collection = $col.Name
+                    Document = $_.document_name
+                    Similarity = $_.similarity
+                    Preview = $_.content.Substring(0, [Math]::Min(150, $_.content.Length))
+                }
+            }
+        }
+    }
+    
+    return $allResults | Sort-Object Similarity -Descending
+}
+
+# Search across all collections
+$searchResults = Search-AllCollections -Query "vacation policy"
+$searchResults | Format-Table -AutoSize
+```
+
+#### Example 8: Using the REST APIs Directly
+
+```powershell
+# Add a collection via API
+$body = @{
+    name = "APICollection"
+    folder_path = "C:\APIData"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:10003/api/collections" `
+    -Method Post `
+    -Body $body `
+    -ContentType "application/json"
+
+# Get all collections
+$collections = Invoke-RestMethod -Uri "http://localhost:10003/api/collections"
+$collections | ConvertTo-Json -Depth 3
+
+# Add a document to vectors
+$vectorDoc = @{
+    collection_name = "APICollection"
+    document_id = "doc-001"
+    document_name = "sample.txt"
+    content = "This is sample content for vector storage."
+    metadata = @{
+        author = "John Doe"
+        date = "2025-10-05"
+    }
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:10001/api/documents" `
+    -Method Post `
+    -Body $vectorDoc `
+    -ContentType "application/json"
+
+# Search documents via API
+$searchQuery = @{
+    query = "sample content"
+    collection_name = "APICollection"
+    max_results = 5
+    threshold = 0.6
+} | ConvertTo-Json
+
+$searchResults = Invoke-RestMethod -Uri "http://localhost:10001/api/search/documents" `
+    -Method Post `
+    -Body $searchQuery `
+    -ContentType "application/json"
+
+$searchResults.results | Format-Table
+```
+
+#### Example 9: PDF Processing Workflow
+
+```powershell
+# Set up collection for PDFs
+.\RAG\FileTracker\Add-Folder.ps1 `
+    -CollectionName "PDFLibrary" `
+    -FolderPath "C:\Documents\PDFs"
+
+# Process PDFs with OCR support (requires Python + OCR tool)
+.\RAG\Processor\Process-Collection.ps1 `
+    -CollectionName "PDFLibrary" `
+    -OcrTool "tesseract" `
+    -ChunkSize 30
+
+# Search within PDF content
+$pdfSearch = .\RAG\Search\Get-BestChunks.ps1 `
+    -Query "financial statements and quarterly reports" `
+    -CollectionName "PDFLibrary" `
+    -Threshold 0.75 `
+    -MaxResults 8 `
+    -AggregateByDocument $true
+
+# Show results grouped by document
+$pdfSearch.results | Group-Object document_name | ForEach-Object {
+    Write-Host "`n=== $($_.Name) ===" -ForegroundColor Yellow
+    $_.Group | ForEach-Object {
+        Write-Host "Similarity: $($_.similarity) - Chunk: $($_.chunk_index)"
+        Write-Host $_.content.Substring(0, [Math]::Min(200, $_.content.Length))
+        Write-Host ""
+    }
+}
+```
+
+#### Example 10: Health Monitoring and Maintenance
+
+```powershell
+# Check system health
+function Get-RAGSystemHealth {
+    $health = @{
+        FileTrackerAPI = $false
+        VectorsAPI = $false
+        OllamaService = $false
+        Collections = 0
+        LastError = $null
+    }
+    
+    try {
+        # Check FileTracker API
+        $ftResponse = Invoke-RestMethod -Uri "http://localhost:10003/api/collections" -ErrorAction Stop
+        $health.FileTrackerAPI = $true
+        $health.Collections = $ftResponse.Count
+    }
+    catch {
+        $health.LastError = "FileTracker: $($_.Exception.Message)"
+    }
+    
+    try {
+        # Check Vectors API
+        $vectorResponse = Invoke-RestMethod -Uri "http://localhost:10001/api/health" -ErrorAction Stop
+        $health.VectorsAPI = $true
+    }
+    catch {
+        $health.LastError = "Vectors: $($_.Exception.Message)"
+    }
+    
+    try {
+        # Check Ollama
+        $ollamaResponse = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -ErrorAction Stop
+        $health.OllamaService = $true
+    }
+    catch {
+        $health.LastError = "Ollama: $($_.Exception.Message)"
+    }
+    
+    return [PSCustomObject]$health
+}
+
+# Run health check
+$healthStatus = Get-RAGSystemHealth
+$healthStatus | Format-List
+
+# Maintenance: Refresh all collections
+$collections = Invoke-RestMethod -Uri "http://localhost:10003/api/collections"
+foreach ($collection in $collections) {
+    Write-Host "Refreshing $($collection.name)..."
+    .\RAG\FileTracker\Refresh-Collection.ps1 -CollectionName $collection.name
+}
+```
+
 ### Managing Collections
 
 #### Add a Collection

@@ -23,7 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Ollama-RAG-Sync.csproj" />
+    <ProjectReference Include="..\..\src\Ollama-RAG-Sync.csproj" />
   </ItemGroup>
 
 </Project>

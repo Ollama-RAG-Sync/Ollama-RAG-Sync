@@ -1,3 +1,4 @@
+using ORSMcp.Models;
 using System.Net;
 using System.Text.Json;
 
@@ -9,7 +10,7 @@ namespace ORSMcp.Tests
         public void RequestData_Serialization_ShouldUseCorrectPropertyNames()
         {
             // Arrange
-            var requestData = new RequestData
+            var requestData = new DocumentSearchRequest
             {
                 Query = "test query",
                 Threshold = 0.8m,
@@ -20,7 +21,7 @@ namespace ORSMcp.Tests
 
             // Act
             var json = JsonSerializer.Serialize(requestData);
-            var deserialized = JsonSerializer.Deserialize<RequestData>(json);
+            var deserialized = JsonSerializer.Deserialize<DocumentSearchRequest>(json);
 
             // Assert
             Assert.NotNull(deserialized);
@@ -35,7 +36,7 @@ namespace ORSMcp.Tests
         public void RequestData_JsonSerialization_ShouldHaveCorrectPropertyNames()
         {
             // Arrange
-            var requestData = new RequestData
+            var requestData = new DocumentSearchRequest
             {
                 Query = "test",
                 Threshold = 0.5m,
@@ -62,7 +63,7 @@ namespace ORSMcp.Tests
         public void ChunkRequestData_Serialization_ShouldUseCorrectPropertyNames()
         {
             // Arrange
-            var requestData = new ChunkRequestData
+            var requestData = new ChunkSearchRequest
             {
                 Query = "test query",
                 Threshold = 0.7m,
@@ -73,7 +74,7 @@ namespace ORSMcp.Tests
 
             // Act
             var json = JsonSerializer.Serialize(requestData);
-            var deserialized = JsonSerializer.Deserialize<ChunkRequestData>(json);
+            var deserialized = JsonSerializer.Deserialize<ChunkSearchRequest>(json);
 
             // Assert
             Assert.NotNull(deserialized);
@@ -88,7 +89,7 @@ namespace ORSMcp.Tests
         public void ChunkRequestData_JsonSerialization_ShouldHaveCorrectPropertyNames()
         {
             // Arrange
-            var requestData = new ChunkRequestData
+            var requestData = new ChunkSearchRequest
             {
                 Query = "test",
                 Threshold = 0.5m,
@@ -134,7 +135,7 @@ namespace ORSMcp.Tests
             }";
 
             // Act
-            var response = JsonSerializer.Deserialize<DocumentResponseData>(json);
+            var response = JsonSerializer.Deserialize<DocumentSearchResponse>(json);
 
             // Assert
             Assert.NotNull(response);
@@ -154,7 +155,7 @@ namespace ORSMcp.Tests
             var json = @"{""success"": true, ""results"": []}";
 
             // Act
-            var response = JsonSerializer.Deserialize<DocumentResponseData>(json);
+            var response = JsonSerializer.Deserialize<DocumentSearchResponse>(json);
 
             // Assert
             Assert.NotNull(response);
@@ -186,7 +187,7 @@ namespace ORSMcp.Tests
             }";
 
             // Act
-            var response = JsonSerializer.Deserialize<ChunkResponseData>(json);
+            var response = JsonSerializer.Deserialize<ChunkSearchResponse>(json);
 
             // Assert
             Assert.NotNull(response);
@@ -195,50 +196,9 @@ namespace ORSMcp.Tests
             Assert.Single(response.Results);
             Assert.Equal("chunk1", response.Results[0].Id);
             Assert.Equal("file1.txt", response.Results[0].Source);
-            Assert.Equal("chunk content 1", response.Results[0].Document);
+            Assert.Equal("chunk content 1", response.Results[0].Chunk);
             Assert.Equal("1-10", response.Results[0].Metadata.LineRange);
             Assert.Equal(0.92m, response.Results[0].Similarity);
-        }
-    }
-
-    public class ChunkAggregatedResponseDataTests
-    {
-        [Fact]
-        public void ChunkAggregatedResponseData_Deserialization_ShouldWorkCorrectly()
-        {
-            // Arrange
-            var json = @"{
-                ""success"": true,
-                ""results"": [
-                    {
-                        ""source"": ""document1.txt"",
-                        ""chunks"": [
-                            {
-                                ""id"": ""chunk1"",
-                                ""source"": ""document1.txt"",
-                                ""chunk"": ""content1"",
-                                ""metadata"": {
-                                    ""line_range"": ""1-5""
-                                },
-                                ""similarity"": 0.9
-                            }
-                        ]
-                    }
-                ]
-            }";
-
-            // Act
-            var response = JsonSerializer.Deserialize<ChunkAggregatedResponseData>(json);
-
-            // Assert
-            Assert.NotNull(response);
-            Assert.True(response.Success);
-            Assert.NotNull(response.Results);
-            Assert.Single(response.Results);
-            Assert.Equal("document1.txt", response.Results[0].Source);
-            Assert.NotNull(response.Results[0].Chunks);
-            Assert.Single(response.Results[0].Chunks);
-            Assert.Equal("chunk1", response.Results[0].Chunks[0].Id);
         }
     }
 }

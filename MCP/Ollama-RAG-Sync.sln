@@ -1,9 +1,11 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.13.35919.96 d17.13
+VisualStudioVersion = 17.13.35919.96
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ollama-RAG-Sync", "Ollama-RAG-Sync.csproj", "{12504748-92D6-19DC-775E-05B1492AEB43}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ollama-RAG-Sync", "src\Ollama-RAG-Sync.csproj", "{12504748-92D6-19DC-775E-05B1492AEB43}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ollama-RAG-Sync.Tests", "tests\Ollama-RAG-Sync.Tests\Ollama-RAG-Sync.Tests.csproj", "{4C22DD8F-BFEA-475A-9D27-17CBE736C502}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,6 +17,10 @@ Global
 		{12504748-92D6-19DC-775E-05B1492AEB43}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{12504748-92D6-19DC-775E-05B1492AEB43}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{12504748-92D6-19DC-775E-05B1492AEB43}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4C22DD8F-BFEA-475A-9D27-17CBE736C502}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4C22DD8F-BFEA-475A-9D27-17CBE736C502}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4C22DD8F-BFEA-475A-9D27-17CBE736C502}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4C22DD8F-BFEA-475A-9D27-17CBE736C502}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
