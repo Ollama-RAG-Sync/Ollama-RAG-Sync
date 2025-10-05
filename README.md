@@ -1363,9 +1363,8 @@ If you find this project useful, please consider giving it a star ⭐
 ## 📞 Contact
 
 For questions, suggestions, or feedback:
-- **Email**: your-email@example.com
-- **GitHub**: [@your-username](https://github.com/your-username)
-- **Issues**: [Report a bug or request a feature](https://github.com/your-username/Ollama-RAG-Sync/issues/new)
+- **Email**: xormus@gmail.com
+- **Issues**: [Report a bug or request a feature](https://github.com/Ollama-RAG-Sync/Ollama-RAG-Sync/issues/new)
 
 ---
 
