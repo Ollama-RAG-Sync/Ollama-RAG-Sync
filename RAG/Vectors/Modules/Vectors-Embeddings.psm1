@@ -737,97 +737,106 @@ try:
         settings=Settings(anonymized_telemetry=False)
     )
     
-    # Get collections with dynamic names
-    doc_collection_name = f"{collection_name}_documents"
+    # Always use both "default" and the specified collection
+    collection_names_to_use = ["default"]
+    if collection_name and collection_name.lower() != "default":
+        collection_names_to_use.append(collection_name)
     
-    doc_collection = chroma_client.get_or_create_collection(
-        name=doc_collection_name,
-        metadata={
-            "hnsw:space": "cosine",
-            "hnsw:search_ef": 100
-        }
-    )
-    chunks_collection_name = f"{collection_name}_chunks"
- 
-    chunks_collection = chroma_client.get_or_create_collection(
-        name=chunks_collection_name,
-        metadata={
-            "hnsw:space": "cosine",
-            "hnsw:search_ef": 100
-        }
-    )
-    try:
-        doc_collection.delete(ids=[document_id])
-        log_to_file(f"INFO:Removed existing document with ID: {document_id}", log_path)
-    except:
-        pass
-    try:
-        doc_collection.delete(where={"source": source_path})
-        log_to_file(f"INFO:Removed existing document with source: {source_path}", log_path)
-    except:
-        pass
-    # Remove any existing chunks for this document
-    try:
-        chunks_collection.delete(where={"source": source_path})
-        log_to_file(f"INFO:Removed existing chunks for source: {source_path}", log_path)
-    except:
-        pass
-    
-    # Add document to collection
-    doc_metadata = {"source": source_path, "collection": collection_name}
-    if "duration" in document_embedding:
-        doc_metadata["duration"] = document_embedding["duration"]
-
-    doc_metadata["created_at"] = document_embedding.get("created_at", None)
-
-    doc_collection.add(
-        documents=[normalize_text(document_embedding["text"])], 
-        embeddings=[document_embedding["embedding"]],
-        metadatas=[doc_metadata], # Updated metadata
-        ids=[document_id]
-    )
-    print(f"SUCCESS:Added document to vector store with ID: {document_id}")
-    
-    # Add chunks to collection
-    documents = []
-    embeddings = []
-    metadatas = []
-    ids = []
-    
-    for chunk_data in chunks_data:
-        chunk_id = chunk_data["chunk_id"]
-        doc_id = f"{document_id}_chunk_{chunk_id}"
+    # Iterate through each collection to store in
+    for coll_name in collection_names_to_use:
+        # Get collections with dynamic names
+        doc_collection_name = f"{coll_name}_documents"
         
-        chunk_metadata = {
-            "source": source_path,
-            "collection": collection_name,
-            "source_id": document_id,
-            "chunk_id": chunk_id,
-            "total_chunks": len(chunks_data),
-            "start_line": chunk_data.get("start_line", 1),
-            "end_line": chunk_data.get("end_line", 1),
-            "line_range": f"{chunk_data.get('start_line', 1)}-{chunk_data.get('end_line', 1)}",
-            "created_at": chunk_data.get("created_at", None)
-        }
-        if "duration" in chunk_data:
-            chunk_metadata["duration"] = chunk_data["duration"]
-        
-        documents.append(normalize_text(chunk_data["text"]))
-        embeddings.append(chunk_data["embedding"])
-        metadatas.append(chunk_metadata) # Updated metadata
-        ids.append(doc_id)
-    
-    # Add all chunks to collection
-    if documents: # Ensure there's something to add
-        chunks_collection.add(
-            documents=documents,
-            embeddings=embeddings,
-            metadatas=metadatas,
-            ids=ids
+        doc_collection = chroma_client.get_or_create_collection(
+            name=doc_collection_name,
+            metadata={
+                "hnsw:space": "cosine",
+                "hnsw:search_ef": 100
+            }
         )
-        print(f"SUCCESS:Added {len(chunks_data)} chunks to vector store")
-    else:
-        log_to_file(f"INFO:No chunks to add for document ID: {document_id}", log_path)
+        chunks_collection_name = f"{coll_name}_chunks"
+     
+        chunks_collection = chroma_client.get_or_create_collection(
+            name=chunks_collection_name,
+            metadata={
+                "hnsw:space": "cosine",
+                "hnsw:search_ef": 100
+            }
+        )
+        try:
+            doc_collection.delete(ids=[document_id])
+            log_to_file(f"INFO:Removed existing document with ID: {document_id} from {coll_name}", log_path)
+        except:
+            pass
+        try:
+            doc_collection.delete(where={"source": source_path})
+            log_to_file(f"INFO:Removed existing document with source: {source_path} from {coll_name}", log_path)
+        except:
+            pass
+        # Remove any existing chunks for this document
+        try:
+            chunks_collection.delete(where={"source": source_path})
+            log_to_file(f"INFO:Removed existing chunks for source: {source_path} from {coll_name}", log_path)
+        except:
+            pass
+        
+        # Add document to collection
+        doc_metadata = {"source": source_path, "collection": coll_name}
+        if "duration" in document_embedding:
+            doc_metadata["duration"] = document_embedding["duration"]
+
+        doc_metadata["created_at"] = document_embedding.get("created_at", None)
+
+        doc_collection.add(
+            documents=[normalize_text(document_embedding["text"])], 
+            embeddings=[document_embedding["embedding"]],
+            metadatas=[doc_metadata], # Updated metadata
+            ids=[document_id]
+        )
+        log_to_file(f"INFO:Added document to {coll_name} collection with ID: {document_id}", log_path)
+        
+        # Add chunks to collection
+        documents = []
+        embeddings = []
+        metadatas = []
+        ids = []
+        
+        for chunk_data in chunks_data:
+            chunk_id = chunk_data["chunk_id"]
+            doc_id = f"{document_id}_chunk_{chunk_id}"
+            
+            chunk_metadata = {
+                "source": source_path,
+                "collection": coll_name,
+                "source_id": document_id,
+                "chunk_id": chunk_id,
+                "total_chunks": len(chunks_data),
+                "start_line": chunk_data.get("start_line", 1),
+                "end_line": chunk_data.get("end_line", 1),
+                "line_range": f"{chunk_data.get('start_line', 1)}-{chunk_data.get('end_line', 1)}",
+                "created_at": chunk_data.get("created_at", None)
+            }
+            if "duration" in chunk_data:
+                chunk_metadata["duration"] = chunk_data["duration"]
+            
+            documents.append(normalize_text(chunk_data["text"]))
+            embeddings.append(chunk_data["embedding"])
+            metadatas.append(chunk_metadata) # Updated metadata
+            ids.append(doc_id)
+        
+        # Add all chunks to collection
+        if documents: # Ensure there's something to add
+            chunks_collection.add(
+                documents=documents,
+                embeddings=embeddings,
+                metadatas=metadatas,
+                ids=ids
+            )
+            log_to_file(f"INFO:Added {len(chunks_data)} chunks to {coll_name} collection", log_path)
+        else:
+            log_to_file(f"INFO:No chunks to add for document ID: {document_id} in {coll_name}", log_path)
+    
+    print(f"SUCCESS:Added document to vector store with ID: {document_id} in collections: {', '.join(collection_names_to_use)}")
     
 except Exception as e:
     log_to_file(f"ERROR:{str(e)}", log_path)

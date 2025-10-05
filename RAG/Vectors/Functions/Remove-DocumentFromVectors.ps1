@@ -54,7 +54,7 @@ if (-not (Test-VectorsRequirements)) {
 
 # Remove document from vector store
 $parameters = @{
-    CollectionName = $CollectionName
+    CollectionName = $CollectionName + "_" + $EmbeddingModel
 }
 
 if ($PSCmdlet.ParameterSetName -eq "ByPath") {

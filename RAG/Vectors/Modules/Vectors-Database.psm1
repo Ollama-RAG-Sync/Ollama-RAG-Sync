@@ -128,7 +128,7 @@ except Exception as e:
 .SYNOPSIS
     Performs a query against the document vector collection
 .DESCRIPTION
-    Searches for similar documents in the vector database
+    Searches for similar documents in the vector database with optional reranking for improved relevance
 .PARAMETER QueryText
     The query text to search for
 .PARAMETER MaxResults
@@ -137,10 +137,21 @@ except Exception as e:
     The minimum similarity score (0-1) for results
 .PARAMETER WhereFilter
     Optional filter to apply to the query (e.g. @{source = "path/to/file.md"})
+.PARAMETER ReturnSourceContent
+    Whether to return the full document content in results
+.PARAMETER EnableReranking
+    Enable reranking to improve result relevance using LLM-based scoring
+.PARAMETER RerankModel
+    The Ollama model to use for reranking (default: uses embedding model from config)
+.PARAMETER RerankTopK
+    Number of top results to retrieve before reranking (should be >= MaxResults, default: MaxResults * 3)
 .EXAMPLE
     Query-VectorDocuments -QueryText "How to implement RAG?" -MaxResults 5
+.EXAMPLE
+    Query-VectorDocuments -QueryText "How to implement RAG?" -MaxResults 5 -EnableReranking
 #>
 function Query-VectorDocuments {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory=$true)]
         [string]$QueryText,
@@ -158,10 +169,33 @@ function Query-VectorDocuments {
         [switch]$ReturnSourceContent,
         
         [Parameter(Mandatory=$false)]
-        [string]$CollectionName = "default"
+        [string]$CollectionName = "default",
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$EnableReranking,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$RerankModel = "",
+        
+        [Parameter(Mandatory=$false)]
+        [int]$RerankTopK = 0
     )
     
     $config = Get-VectorsConfig
+    
+    # Set reranking parameters
+    $useReranking = $EnableReranking.IsPresent
+    $rerankModelName = if ([string]::IsNullOrEmpty($RerankModel)) { $config.EmbeddingModel } else { $RerankModel }
+    $topKForReranking = if ($RerankTopK -eq 0) { $MaxResults * 3 } else { $RerankTopK }
+    
+    # Ensure topK is at least MaxResults
+    if ($topKForReranking -lt $MaxResults) {
+        $topKForReranking = $MaxResults
+    }
+    
+    if ($useReranking) {
+        Write-VectorsLog -Message "Reranking enabled: retrieving top $topKForReranking documents for reranking to $MaxResults" -Level "Info"
+    }
     
     # Use Python to query the database
     $tempPythonScript = [System.IO.Path]::GetTempFileName() + ".py"
@@ -171,6 +205,8 @@ function Query-VectorDocuments {
     if ($WhereFilter.Count -gt 0) {
         $whereFilterJson = $WhereFilter | ConvertTo-Json -Compress
     }
+    
+    $rerankFlag = if ($useReranking) { "True" } else { "False" }
 
     $pythonCode = @"
 import os
@@ -259,14 +295,110 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
         print(f"ERROR:Error connecting to Ollama: {e}")
         return None
 
+def rerank_with_ollama(query, documents, model="llama3", base_url="http://localhost:11434"):
+    """
+    Rerank documents using Ollama's LLM to assess relevance
+    
+    Args:
+        query (str): The search query
+        documents (list): List of document dictionaries with 'document' and 'similarity' keys
+        model (str): The model to use for reranking
+        base_url (str): The base URL for Ollama API
+        
+    Returns:
+        list: Reranked documents with updated 'rerank_score' field
+    """
+    url = f"{base_url}/api/generate"
+    reranked = []
+    
+    print(f"INFO:Reranking {len(documents)} documents using {model}...")
+    
+    for idx, doc_data in enumerate(documents):
+        doc_text = doc_data.get('document', '')
+        
+        # For documents, use a longer excerpt
+        excerpt = doc_text[:1000] if doc_text else ""
+        
+        # Create a prompt for the LLM to score relevance
+        prompt = f'''On a scale of 0.0 to 1.0, rate how relevant the following document is to answering this query.
+Respond with ONLY a number between 0.0 and 1.0, nothing else.
+
+Query: {query}
+
+Document excerpt: {excerpt}
+
+Relevance score:'''
+        
+        # Prepare request data
+        data = {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0.0,
+                "num_predict": 10
+            }
+        }
+        
+        data_bytes = json.dumps(data).encode('utf-8')
+        headers = {'Content-Type': 'application/json'}
+        
+        try:
+            req = urllib.request.Request(url, data=data_bytes, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=30) as response:
+                response_text = response.read().decode('utf-8')
+                response_data = json.loads(response_text)
+                
+                # Extract the score from response
+                llm_response = response_data.get('response', '0.5').strip()
+                
+                # Try to parse the score
+                try:
+                    # Extract first number from response
+                    import re
+                    numbers = re.findall(r'0?\.\d+|[01]\.?\d*', llm_response)
+                    if numbers:
+                        rerank_score = float(numbers[0])
+                        # Ensure score is in valid range
+                        rerank_score = max(0.0, min(1.0, rerank_score))
+                    else:
+                        rerank_score = 0.5  # Default if parsing fails
+                except:
+                    rerank_score = 0.5
+                
+                # Combine original similarity with rerank score (weighted average)
+                original_sim = doc_data.get('similarity', 0.5)
+                combined_score = (original_sim * 0.3) + (rerank_score * 0.7)
+                
+                doc_data['rerank_score'] = rerank_score
+                doc_data['combined_score'] = combined_score
+                doc_data['original_similarity'] = original_sim
+                
+                reranked.append(doc_data)
+                
+        except Exception as e:
+            print(f"INFO:Reranking error for document {idx}, using original score: {e}")
+            # Keep original score if reranking fails
+            doc_data['rerank_score'] = doc_data.get('similarity', 0.5)
+            doc_data['combined_score'] = doc_data.get('similarity', 0.5)
+            doc_data['original_similarity'] = doc_data.get('similarity', 0.5)
+            reranked.append(doc_data)
+    
+    # Sort by combined score
+    reranked.sort(key=lambda x: x.get('combined_score', 0), reverse=True)
+    
+    return reranked
+
 try:
     # Parse parameters
     query_text = r"""$QueryText"""
     max_results = $MaxResults
+    initial_retrieval_count = $topKForReranking
     return_documents = $ReturnSourceContent
-
     min_score = $MinScore
     where_filter = json.loads(r'''$whereFilterJson''')
+    enable_reranking = $rerankFlag
+    rerank_model = r"$rerankModelName"
     
     # Generate embedding for query
     print(f"INFO:Generating embedding for query: {query_text[:50]}...")
@@ -292,20 +424,23 @@ try:
     doc_collection_name = f"{collection_name}_documents"
     collection = chroma_client.get_collection(name=doc_collection_name)
     
+    # Adjust query_limit based on whether reranking is enabled
+    query_limit = initial_retrieval_count if enable_reranking else max_results
+    
     # Perform query
-    print(f"INFO:Querying document collection with filter: {where_filter}")
+    print(f"INFO:Querying document collection (retrieving {query_limit} results) with filter: {where_filter}")
     
     # Handle empty where_filter
     if not where_filter:
         results = collection.query(
             query_embeddings=[embedding],
-            n_results=max_results,
+            n_results=query_limit,
             include=["documents", "metadatas", "distances"]
         )
     else:
         results = collection.query(
             query_embeddings=[embedding],
-            n_results=max_results,
+            n_results=query_limit,
             where=where_filter,
             include=["documents", "metadatas", "distances"]
         )
@@ -320,6 +455,8 @@ try:
         metadatas = results["metadatas"][0]  # First query metadatas
         distances = results["distances"][0]  # First query distances
         
+        # Build initial results list
+        initial_results = []
         for i in range(len(ids)):
             # Convert distance to similarity score (cosine distance to similarity)
             similarity = 1 - distances[i]
@@ -328,13 +465,41 @@ try:
             if similarity < min_score:
                 continue
                 
-            processed_results.append({
+            initial_results.append({
                 "id": ids[i],
                 "source": metadatas[i].get("source", "Unknown"),
-                "document": documents[i] if return_documents else None,
+                "document": documents[i],
                 "metadata": metadatas[i],
                 "similarity": similarity
             })
+        
+        # Apply reranking if enabled
+        if enable_reranking and initial_results:
+            print(f"INFO:Applying reranking to {len(initial_results)} documents...")
+            initial_results = rerank_with_ollama(
+                query_text, 
+                initial_results, 
+                model=rerank_model,
+                base_url="$($config.OllamaUrl)"
+            )
+            print(f"INFO:Reranking complete")
+        
+        # Format final results
+        for result in initial_results[:max_results]:
+            doc_data = {
+                "id": result["id"],
+                "source": result.get("source", "Unknown"),
+                "document": result["document"] if return_documents else None,
+                "metadata": result["metadata"],
+                "similarity": result.get("combined_score" if enable_reranking else "similarity", result["similarity"])
+            }
+            
+            # Add reranking metadata if available
+            if enable_reranking and "rerank_score" in result:
+                doc_data["rerank_score"] = result["rerank_score"]
+                doc_data["original_similarity"] = result.get("original_similarity", result["similarity"])
+            
+            processed_results.append(doc_data)
     
     # Return as JSON
     print(f"SUCCESS:{json.dumps(processed_results)}")
@@ -360,6 +525,14 @@ except Exception as e:
                 try {
                     $queryResults = ConvertFrom-Json -InputObject $successData -NoEnumerate
                     Write-VectorsLog -Message "Found $($queryResults.Count) matching documents" -Level "Info"
+                    
+                    # Log reranking info if enabled
+                    if ($useReranking -and $queryResults.Count -gt 0) {
+                        $firstResult = $queryResults[0]
+                        if ($firstResult.PSObject.Properties['rerank_score']) {
+                            Write-VectorsLog -Message "Results include reranking scores (weight: 70% rerank, 30% similarity)" -Level "Info"
+                        }
+                    }
                 }
                 catch {
                     Write-VectorsLog -Message "Failed to parse query results: $($_.Exception.Message)" -Level "Error"
@@ -397,7 +570,7 @@ except Exception as e:
 .SYNOPSIS
     Performs a query against the document chunks vector collection
 .DESCRIPTION
-    Searches for similar chunks in the vector database
+    Searches for similar chunks in the vector database with optional reranking for improved relevance
 .PARAMETER QueryText
     The query text to search for
 .PARAMETER MaxResults
@@ -408,8 +581,16 @@ except Exception as e:
     Optional filter to apply to the query (e.g. @{source = "path/to/file.md"})
 .PARAMETER AggregateByDocument
     Whether to aggregate results by source document
+.PARAMETER EnableReranking
+    Enable reranking to improve result relevance using LLM-based scoring
+.PARAMETER RerankModel
+    The Ollama model to use for reranking (default: uses embedding model from config)
+.PARAMETER RerankTopK
+    Number of top results to retrieve before reranking (should be >= MaxResults, default: MaxResults * 3)
 .EXAMPLE
     Query-VectorChunks -QueryText "How to implement RAG?" -MaxResults 5
+.EXAMPLE
+    Query-VectorChunks -QueryText "How to implement RAG?" -MaxResults 5 -EnableReranking
 #>
 function Query-VectorChunks {
     [CmdletBinding()]
@@ -430,10 +611,33 @@ function Query-VectorChunks {
         [switch]$AggregateByDocument,
         
         [Parameter(Mandatory=$false)]
-        [string]$CollectionName = "default"
+        [string]$CollectionName = "default",
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$EnableReranking,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$RerankModel = "",
+        
+        [Parameter(Mandatory=$false)]
+        [int]$RerankTopK = 0
     )
     
     $config = Get-VectorsConfig
+    
+    # Set reranking parameters
+    $useReranking = $EnableReranking.IsPresent
+    $rerankModelName = if ([string]::IsNullOrEmpty($RerankModel)) { $config.EmbeddingModel } else { $RerankModel }
+    $topKForReranking = if ($RerankTopK -eq 0) { $MaxResults * 3 } else { $RerankTopK }
+    
+    # Ensure topK is at least MaxResults
+    if ($topKForReranking -lt $MaxResults) {
+        $topKForReranking = $MaxResults
+    }
+    
+    if ($useReranking) {
+        Write-VectorsLog -Message "Reranking enabled: retrieving top $topKForReranking results for reranking to $MaxResults" -Level "Info"
+    }
     
     # Use Python to query the database
     $tempPythonScript = [System.IO.Path]::GetTempFileName() + ".py"
@@ -446,6 +650,7 @@ function Query-VectorChunks {
     
     # Set aggregate flag
     $aggregateFlag = if ($AggregateByDocument) { "True" } else { "False" }
+    $rerankFlag = if ($useReranking) { "True" } else { "False" }
 
     $pythonCode = @"
 import os
@@ -535,13 +740,107 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
         print(f"ERROR:Error connecting to Ollama: {e}")
         return None
 
+def rerank_with_ollama(query, chunks, model="llama3", base_url="http://localhost:11434"):
+    """
+    Rerank chunks using Ollama's LLM to assess relevance
+    
+    Args:
+        query (str): The search query
+        chunks (list): List of chunk dictionaries with 'chunk' and 'similarity' keys
+        model (str): The model to use for reranking
+        base_url (str): The base URL for Ollama API
+        
+    Returns:
+        list: Reranked chunks with updated 'rerank_score' field
+    """
+    url = f"{base_url}/api/generate"
+    reranked = []
+    
+    print(f"INFO:Reranking {len(chunks)} chunks using {model}...")
+    
+    for idx, chunk_data in enumerate(chunks):
+        chunk_text = chunk_data.get('chunk', '')
+        
+        # Create a prompt for the LLM to score relevance
+        prompt = f'''On a scale of 0.0 to 1.0, rate how relevant the following text passage is to answering this query.
+Respond with ONLY a number between 0.0 and 1.0, nothing else.
+
+Query: {query}
+
+Passage: {chunk_text[:500]}
+
+Relevance score:'''
+        
+        # Prepare request data
+        data = {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0.0,
+                "num_predict": 10
+            }
+        }
+        
+        data_bytes = json.dumps(data).encode('utf-8')
+        headers = {'Content-Type': 'application/json'}
+        
+        try:
+            req = urllib.request.Request(url, data=data_bytes, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=30) as response:
+                response_text = response.read().decode('utf-8')
+                response_data = json.loads(response_text)
+                
+                # Extract the score from response
+                llm_response = response_data.get('response', '0.5').strip()
+                
+                # Try to parse the score
+                try:
+                    # Extract first number from response
+                    import re
+                    numbers = re.findall(r'0?\.\d+|[01]\.?\d*', llm_response)
+                    if numbers:
+                        rerank_score = float(numbers[0])
+                        # Ensure score is in valid range
+                        rerank_score = max(0.0, min(1.0, rerank_score))
+                    else:
+                        rerank_score = 0.5  # Default if parsing fails
+                except:
+                    rerank_score = 0.5
+                
+                # Combine original similarity with rerank score (weighted average)
+                original_sim = chunk_data.get('similarity', 0.5)
+                combined_score = (original_sim * 0.3) + (rerank_score * 0.7)
+                
+                chunk_data['rerank_score'] = rerank_score
+                chunk_data['combined_score'] = combined_score
+                chunk_data['original_similarity'] = original_sim
+                
+                reranked.append(chunk_data)
+                
+        except Exception as e:
+            print(f"INFO:Reranking error for chunk {idx}, using original score: {e}")
+            # Keep original score if reranking fails
+            chunk_data['rerank_score'] = chunk_data.get('similarity', 0.5)
+            chunk_data['combined_score'] = chunk_data.get('similarity', 0.5)
+            chunk_data['original_similarity'] = chunk_data.get('similarity', 0.5)
+            reranked.append(chunk_data)
+    
+    # Sort by combined score
+    reranked.sort(key=lambda x: x.get('combined_score', 0), reverse=True)
+    
+    return reranked
+
 try:
     # Parse parameters
     query_text = r"""$QueryText"""
     max_results = $MaxResults
+    initial_retrieval_count = $topKForReranking
     min_score = $MinScore
     where_filter = json.loads(r'''$whereFilterJson''')
     aggregate_by_document = $aggregateFlag
+    enable_reranking = $rerankFlag
+    rerank_model = r"$rerankModelName"
     
     # Generate embedding for query
     print(f"INFO:Generating embedding for query: {query_text[:50]}...")
@@ -567,14 +866,14 @@ try:
     chunks_collection_name = f"{collection_name}_chunks"
     collection = chroma_client.get_collection(name=chunks_collection_name)
     
-    # Adjust max_results for aggregation
-    query_limit = max_results
+    # Adjust query_limit based on whether reranking is enabled
+    query_limit = initial_retrieval_count if enable_reranking else max_results
     if aggregate_by_document:
         # If we're aggregating, get more results to ensure we have enough after aggregation
-        query_limit = max_results * 3
+        query_limit = query_limit * 3
     
     # Perform query
-    print(f"INFO:Querying chunks collection with filter: {where_filter}")
+    print(f"INFO:Querying chunks collection (retrieving {query_limit} results) with filter: {where_filter}")
     
     # Handle empty where_filter
     if not where_filter:
@@ -601,34 +900,64 @@ try:
         metadatas = results["metadatas"][0]  # First query metadatas
         distances = results["distances"][0]  # First query distances
         
+        # Build initial results list
+        initial_results = []
+        for i in range(len(ids)):
+            # Convert distance to similarity score (cosine distance to similarity)
+            similarity = 1 - distances[i]
+            
+            # Skip results below minimum score
+            if similarity < min_score:
+                continue
+                
+            initial_results.append({
+                "id": ids[i],
+                "source": metadatas[i].get("source", "Unknown"),
+                "chunk": documents[i],
+                "metadata": metadatas[i],
+                "similarity": similarity
+            })
+        
+        # Apply reranking if enabled
+        if enable_reranking and initial_results:
+            print(f"INFO:Applying reranking to {len(initial_results)} chunks...")
+            initial_results = rerank_with_ollama(
+                query_text, 
+                initial_results, 
+                model=rerank_model,
+                base_url="$($config.OllamaUrl)"
+            )
+            # Update to use combined_score for sorting (already done in rerank function)
+            print(f"INFO:Reranking complete")
+        
         # If aggregating by document
         if aggregate_by_document:
             # Group by source document
             document_chunks = defaultdict(list)
             
-            for i in range(len(ids)):
-                # Convert distance to similarity score (cosine distance to similarity)
-                similarity = 1 - distances[i]
+            for result in initial_results:
+                source = result.get("source", "Unknown")
                 
-                # Skip results below minimum score
-                if similarity < min_score:
-                    continue
+                # Truncate chunk for display
+                chunk_display = result["chunk"][:500] + ("..." if len(result["chunk"]) > 500 else "")
                 
-                # Get source document
-                if "source" in metadatas[i]:
-                    source = metadatas[i]["source"]
-                    
-                    # Add to document chunks
-                    document_chunks[source].append({
-                        "id": ids[i],
-                        "chunk": documents[i][:500] + ("..." if len(documents[i]) > 500 else ""),  # Truncate long chunks
-                        "metadata": metadatas[i],
-                        "similarity": similarity
-                    })
+                chunk_info = {
+                    "id": result["id"],
+                    "chunk": chunk_display,
+                    "metadata": result["metadata"],
+                    "similarity": result.get("combined_score" if enable_reranking else "similarity", result["similarity"])
+                }
+                
+                # Add reranking metadata if available
+                if enable_reranking and "rerank_score" in result:
+                    chunk_info["rerank_score"] = result["rerank_score"]
+                    chunk_info["original_similarity"] = result.get("original_similarity", result["similarity"])
+                
+                document_chunks[source].append(chunk_info)
             
             # Convert to list of documents with chunks
             for source, chunks in document_chunks.items():
-                # Sort chunks by similarity
+                # Sort chunks by similarity (or combined score if reranked)
                 chunks.sort(key=lambda x: x["similarity"], reverse=True)
                 
                 # Calculate average similarity
@@ -648,24 +977,23 @@ try:
             processed_results = processed_results[:max_results]
         else:
             # Simple list of chunks
-            for i in range(len(ids)):
-                # Convert distance to similarity score (cosine distance to similarity)
-                similarity = 1 - distances[i]
+            for result in initial_results[:max_results]:
+                chunk_display = result["chunk"][:1000] + ("..." if len(result["chunk"]) > 1000 else "")
                 
-                # Skip results below minimum score
-                if similarity < min_score:
-                    continue
-                    
-                processed_results.append({
-                    "id": ids[i],
-                    "source": metadatas[i].get("source", "Unknown"),
-                    "chunk": documents[i][:1000] + ("..." if len(documents[i]) > 1000 else ""),  # Truncate long chunks
-                    "metadata": metadatas[i],
-                    "similarity": similarity
-                })
+                chunk_data = {
+                    "id": result["id"],
+                    "source": result.get("source", "Unknown"),
+                    "chunk": chunk_display,
+                    "metadata": result["metadata"],
+                    "similarity": result.get("combined_score" if enable_reranking else "similarity", result["similarity"])
+                }
                 
-            # Limit to max_results
-            processed_results = processed_results[:max_results]
+                # Add reranking metadata if available
+                if enable_reranking and "rerank_score" in result:
+                    chunk_data["rerank_score"] = result["rerank_score"]
+                    chunk_data["original_similarity"] = result.get("original_similarity", result["similarity"])
+                
+                processed_results.append(chunk_data)
     
     # Return as JSON
     print(f"SUCCESS:{json.dumps(processed_results)}")
@@ -694,6 +1022,14 @@ except Exception as e:
                         Write-VectorsLog -Message "Found $($queryResults.Count) matching documents with relevant chunks" -Level "Info"
                     } else {
                         Write-VectorsLog -Message "Found $($queryResults.Count) matching chunks" -Level "Info"
+                    }
+                    
+                    # Log reranking info if enabled
+                    if ($useReranking -and $queryResults.Count -gt 0) {
+                        $firstResult = $queryResults[0]
+                        if ($firstResult.PSObject.Properties['rerank_score']) {
+                            Write-VectorsLog -Message "Results include reranking scores (weight: 70% rerank, 30% similarity)" -Level "Info"
+                        }
                     }
                 }
                 catch {

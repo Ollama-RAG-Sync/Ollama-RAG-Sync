@@ -12,7 +12,9 @@ A comprehensive RAG (Retrieval-Augmented Generation) system that integrates with
 - 🔄 **Automated File Tracking** - Monitor directories for changes and automatically process new/modified files with SQLite-based tracking
 - 📄 **Advanced Document Processing** - Convert PDFs and documents to embeddings with intelligent chunking and overlap support
 - 🔍 **Semantic Search** - Store and search document embeddings using Ollama models with similarity-based retrieval
-- 🚀 **REST APIs** - Complete API ecosystem for file tracking, processing, and vector operations
+- 🎯 **LLM-Based Reranking** - Improve search relevance with optional reranking using LLM evaluation (new!)
+- � **Multi-Collection Storage** - Documents automatically stored in both "default" and named collections for flexible organization (new!)
+- �🚀 **REST APIs** - Complete API ecosystem for file tracking, processing, and vector operations
 - 🤖 **MCP Integration** - Model Context Protocol server for seamless AI assistant integration
 - ⚙️ **Flexible Configuration** - Environment-based configuration with sensible defaults and easy customization
 - ✅ **Comprehensive Testing** - 59+ automated tests with CI/CD pipeline for reliability
@@ -42,8 +44,9 @@ Processes documents and converts them to vector embeddings.
 Vector database operations and similarity search.
 
 - **Port**: 10001 (configurable via `OLLAMA_RAG_VECTORS_API_PORT`)
-- **Features**: Document embedding, similarity search, vector storage
+- **Features**: Document embedding, similarity search, vector storage, LLM-based reranking, multi-collection storage
 - **Modules**: Core functionality in `Modules/` and API functions in `Functions/`
+- **Documentation**: See `RAG/Vectors/RERANKING.md` for reranking details and `MULTI_COLLECTION_STORAGE.md` for collection management
 
 ### 4. Search (`RAG/Search/`)
 
@@ -199,6 +202,7 @@ $files = .\RAG\FileTracker\Get-CollectionFiles.ps1 -CollectionName "TechLibrary"
 Write-Host "Tracked $($files.Count) files"
 
 # Step 3: Process all documents with custom chunking
+# Note: Documents are stored in both "default" and "TechLibrary" collections
 .\RAG\Processor\Process-Collection.ps1 `
     -CollectionName "TechLibrary" `
     -ChunkSize 25 `
@@ -293,6 +297,14 @@ function Search-AllRepos {
 # Use the function
 $apiDocs = Search-AllRepos -Query "GraphQL API implementation"
 $apiDocs | Format-Table
+
+# Alternative: Search all repos at once using "default" collection
+# (all documents are automatically stored in "default" collection)
+$allRepoResults = .\RAG\Search\Get-BestDocuments.ps1 `
+    -Query "GraphQL API implementation" `
+    -CollectionName "default" `
+    -MaxResults 10
+$allRepoResults.results | Format-Table
 ```
 
 #### Example 4: Monitoring and Auto-Processing New Files
@@ -357,7 +369,7 @@ Write-Host "`n=== Version 2.0 Coverage ==="
 $v2Results.results | Select-Object document_name, similarity | Format-Table
 ```
 
-#### Example 6: Building a Q&A System with Context
+#### Example 6: Building a Q&A System with Context and Reranking
 
 ```powershell
 # Create a knowledge base
@@ -367,7 +379,7 @@ $v2Results.results | Select-Object document_name, similarity | Format-Table
 
 .\RAG\Processor\Process-Collection.ps1 -CollectionName "KnowledgeBase"
 
-# Function to get contextual answers
+# Function to get contextual answers with reranking
 function Get-ContextualAnswer {
     param(
         [string]$Question,
@@ -375,10 +387,12 @@ function Get-ContextualAnswer {
         [int]$ContextChunks = 5
     )
     
-    # Get relevant context
+    # Get relevant context with LLM-based reranking for better accuracy
     $context = .\RAG\Search\Get-BestChunks.ps1 `
         -Query $Question `
         -CollectionName $Collection `
+        -EnableReranking `
+        -RerankTopK 20 `
         -MaxResults $ContextChunks `
         -Threshold 0.6
     
@@ -389,18 +403,22 @@ function Get-ContextualAnswer {
     # Combine context for AI processing
     $contextText = ($context.results | ForEach-Object { $_.content }) -join "`n`n---`n`n"
     
-    # Return structured response
+    # Return structured response with reranking scores
     return [PSCustomObject]@{
         Question = $Question
         RelevantSources = $context.results.document_name | Select-Object -Unique
         Context = $contextText
         ChunkCount = $context.results.Count
+        AvgRerankScore = ($context.results.rerank_score | Measure-Object -Average).Average
+        TopRerankScore = ($context.results.rerank_score | Measure-Object -Maximum).Maximum
     }
 }
 
 # Use the Q&A system
 $answer = Get-ContextualAnswer -Question "How do I configure SSL certificates?"
 Write-Host "Sources: $($answer.RelevantSources -join ', ')"
+Write-Host "Average Rerank Score: $([math]::Round($answer.AvgRerankScore, 3))"
+Write-Host "Top Rerank Score: $([math]::Round($answer.TopRerankScore, 3))"
 Write-Host "`nContext:`n$($answer.Context)"
 ```
 
@@ -659,8 +677,21 @@ Invoke-RestMethod -Uri "http://localhost:10003/api/collections"
 
 - `POST /api/documents` - Add document to vector database
 - `DELETE /api/documents/{id}` - Remove document
-- `POST /api/search/documents` - Search documents by query
-- `POST /api/search/chunks` - Search text chunks
+- `POST /api/search/documents` - Search documents by query (supports reranking)
+- `POST /api/search/chunks` - Search text chunks (supports reranking)
+
+**Reranking Support:**
+Both search endpoints support optional LLM-based reranking for improved relevance:
+```json
+{
+  "query": "search query",
+  "collection_name": "MyCollection",
+  "max_results": 5,
+  "enable_reranking": true,
+  "rerank_top_k": 15,
+  "rerank_model": "llama3"
+}
+```
 
 ## 🤖 MCP Integration
 
@@ -674,7 +705,156 @@ dotnet build
 # The server is automatically started with Start-RAG.ps1
 ```
 
-## 📁 Project Structure
+## 🎯 LLM-Based Reranking (New Feature!)
+
+The system now supports advanced LLM-based reranking to significantly improve search result relevance. Reranking uses a two-stage approach:
+
+### How It Works
+
+1. **Stage 1 - Vector Search**: Fast retrieval of top K candidates using vector similarity
+2. **Stage 2 - LLM Reranking**: Each candidate is evaluated by an LLM for true semantic relevance
+3. **Combined Scoring**: Results are scored as 30% vector similarity + 70% LLM relevance score
+
+### Quick Start
+
+```powershell
+# Chunk search with reranking
+.\RAG\Search\Get-BestChunks.ps1 `
+    -Query "How do I implement authentication?" `
+    -CollectionName "Docs" `
+    -EnableReranking `
+    -MaxResults 5
+
+# Document search with reranking
+.\RAG\Search\Get-BestDocuments.ps1 `
+    -Query "Security best practices" `
+    -CollectionName "SecurityDocs" `
+    -EnableReranking `
+    -RerankTopK 20 `
+    -MaxResults 5
+```
+
+### Advanced Configuration
+
+```powershell
+# Custom reranking model and parameters
+.\RAG\Search\Get-BestChunks.ps1 `
+    -Query "database optimization" `
+    -CollectionName "TechDocs" `
+    -EnableReranking `
+    -RerankModel "llama3" `
+    -RerankTopK 30 `
+    -MaxResults 10 `
+    -AggregateByDocument $true
+```
+
+### Reranking Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `EnableReranking` | switch | false | Enable LLM-based reranking |
+| `RerankModel` | string | (model) | Ollama model for reranking |
+| `RerankTopK` | integer | MaxResults × 3 | Candidates to retrieve before reranking |
+
+### When to Use Reranking
+
+**✅ Use When:**
+- Accuracy is more important than speed (~2-5 seconds vs ~100ms)
+- Query is complex or ambiguous
+- Initial vector results need refinement
+- Working with diverse document types
+
+**❌ Skip When:**
+- Speed is critical
+- Vector similarity is already accurate
+- Simple keyword matching is sufficient
+
+### Result Format
+
+With reranking enabled, results include:
+```json
+{
+  "similarity": 0.87,         // Combined score
+  "rerank_score": 0.92,       // LLM relevance score
+  "original_similarity": 0.78  // Original vector score
+}
+```
+
+For detailed documentation, see [RAG/Vectors/RERANKING.md](RAG/Vectors/RERANKING.md).
+
+## � Multi-Collection Storage (New Feature!)
+
+Documents are now automatically stored in **both** the "default" collection and any specifically named collection. This provides universal access while maintaining organized subsets.
+
+### How It Works
+
+When you add a document to a named collection, it's stored in two places:
+
+```powershell
+# Add document to "technical" collection
+.\RAG\Processor\Process-Document.ps1 `
+    -FilePath "C:\Docs\guide.txt" `
+    -CollectionName "technical"
+
+# Result: Document is stored in:
+# 1. default_documents + default_chunks (universal access)
+# 2. technical_documents + technical_chunks (organized subset)
+```
+
+### Benefits
+
+✅ **Universal Access** - All documents always available in "default" collection  
+✅ **Flexible Organization** - Group documents by topic, project, or department  
+✅ **No Duplication Overhead** - Same document ID across collections  
+✅ **Query Flexibility** - Search everything or specific subsets
+
+### Usage Examples
+
+**Search all documents:**
+```powershell
+.\RAG\Search\Get-BestDocuments.ps1 `
+    -Query "API documentation" `
+    -CollectionName "default"
+```
+
+**Search specific collection:**
+```powershell
+.\RAG\Search\Get-BestDocuments.ps1 `
+    -Query "API documentation" `
+    -CollectionName "technical"
+```
+
+**Organize by topic:**
+```powershell
+# Add documents to different collections
+.\RAG\Processor\Process-Collection.ps1 -CollectionName "security"
+.\RAG\Processor\Process-Collection.ps1 -CollectionName "architecture"
+.\RAG\Processor\Process-Collection.ps1 -CollectionName "api-docs"
+
+# All documents also searchable via "default" collection
+```
+
+### Collection Structure
+
+For a document in collection "technical":
+
+```
+ChromaDB/
+├── default_documents      # Contains ALL documents
+├── default_chunks         # Contains ALL chunks
+├── technical_documents    # Contains technical documents
+└── technical_chunks       # Contains technical chunks
+```
+
+### Migration Notes
+
+- Existing documents are not automatically migrated
+- New documents automatically use multi-collection storage
+- Re-process existing documents to add them to both collections
+
+For complete details, see [MULTI_COLLECTION_STORAGE.md](MULTI_COLLECTION_STORAGE.md).
+
+## �📁 Project Structure
 
 ```
 Ollama-RAG-Sync/
@@ -748,6 +928,14 @@ Finds the most relevant documents based on semantic similarity:
     -CollectionName "APIDocs" `
     -ReturnContent $false `
     -MaxResults 20
+
+# Search with LLM-based reranking for improved relevance (NEW!)
+.\RAG\Search\Get-BestDocuments.ps1 `
+    -Query "security best practices" `
+    -CollectionName "SecurityDocs" `
+    -EnableReranking `
+    -RerankTopK 20 `
+    -MaxResults 5
 ```
 
 **Parameters:**
@@ -757,6 +945,9 @@ Finds the most relevant documents based on semantic similarity:
 - `Threshold`: Similarity threshold (0.0-1.0, default: 0.6)
 - `MaxResults`: Maximum documents to return (default: 5)
 - `ReturnContent`: Include full document content (default: true)
+- `EnableReranking`: Enable LLM-based reranking for better relevance (default: false)
+- `RerankModel`: Ollama model to use for reranking (default: embedding model)
+- `RerankTopK`: Number of candidates to retrieve before reranking (default: MaxResults × 3)
 - `VectorsPort`: Custom API port (uses environment variable if not specified)
 
 #### Chunk-Level Search with `Get-BestChunks.ps1`
@@ -781,6 +972,15 @@ Finds specific text chunks within documents for more granular results:
     -Threshold 0.9 `
     -MaxResults 5 `
     -AggregateByDocument $false
+
+# Search with LLM-based reranking for better accuracy (NEW!)
+.\RAG\Search\Get-BestChunks.ps1 `
+    -Query "API authentication methods" `
+    -CollectionName "APIDocs" `
+    -EnableReranking `
+    -RerankTopK 30 `
+    -MaxResults 10 `
+    -AggregateByDocument $true
 ```
 
 **Parameters:**
@@ -790,24 +990,31 @@ Finds specific text chunks within documents for more granular results:
 - `Threshold`: Similarity threshold (0.0-1.0, default: 0.6)
 - `MaxResults`: Maximum chunks to return (default: 5)
 - `AggregateByDocument`: Group chunks by source document (default: false)
+- `EnableReranking`: Enable LLM-based reranking for better relevance (default: false)
+- `RerankModel`: Ollama model to use for reranking (default: embedding model)
+- `RerankTopK`: Number of candidates to retrieve before reranking (default: MaxResults × 3)
 - `VectorsPort`: Custom API port (uses environment variable if not specified)
 
 #### Advanced Search Patterns
 
-**1. Multi-Step Research Workflow:**
+**1. Multi-Step Research Workflow with Reranking:**
 
 ```powershell
-# Step 1: Find relevant documents
+# Step 1: Find relevant documents with reranking
 $docs = .\RAG\Search\Get-BestDocuments.ps1 `
     -Query "microservices architecture patterns" `
     -CollectionName "Architecture" `
     -ReturnContent $false `
+    -EnableReranking `
+    -RerankTopK 40 `
     -MaxResults 20
 
-# Step 2: Get detailed chunks from top documents
+# Step 2: Get detailed chunks with reranking and aggregation
 $chunks = .\RAG\Search\Get-BestChunks.ps1 `
     -Query "service discovery and load balancing" `
     -CollectionName "Architecture" `
+    -EnableReranking `
+    -RerankTopK 30 `
     -AggregateByDocument $true `
     -MaxResults 10
 ```
@@ -1063,6 +1270,8 @@ Comprehensive documentation is available:
 - **[Contributing Guide](docs/CONTRIBUTING.md)** - How to contribute
 - **[Quick Start Testing](QUICKSTART_TESTING.md)** - Testing in 5 minutes
 - **[Project Improvements](PROJECT_IMPROVEMENTS.md)** - Recent enhancements
+- **[Multi-Collection Storage](MULTI_COLLECTION_STORAGE.md)** - Collection management guide
+- **[Reranking Guide](RAG/Vectors/RERANKING.md)** - LLM-based reranking documentation
 
 ## 🗺️ Roadmap
 
@@ -1074,11 +1283,19 @@ Comprehensive documentation is available:
 - ✅ Comprehensive testing
 - ✅ CI/CD pipeline
 
-### Upcoming Features (v1.1)
+### Version 1.1 (Current)
+- ✅ LLM-based reranking for improved search relevance
+- ✅ Reranking support in both document and chunk searches
+- ✅ Configurable reranking models and parameters
+- ✅ Comprehensive reranking documentation
+- ✅ Multi-collection storage (default + named collections)
+- ✅ Flexible document organization and retrieval
+
+### Upcoming Features (v1.2)
 - [ ] Web UI for management
 - [ ] Advanced PDF processing with OCR
 - [ ] Support for more file types
-- [ ] Performance optimizations
+- [ ] Batch reranking optimization
 - [ ] Authentication and authorization
 
 ## 💬 Community & Support

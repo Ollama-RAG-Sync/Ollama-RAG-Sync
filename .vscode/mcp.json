@@ -6,7 +6,7 @@
             "type": "stdio",
             "command": "dotnet",
             "args": [
-                "D:\\repo\\Ollama-RAG-Sync\\MCP\\bin\\Debug\\net8.0\\Ollama-RAG-Sync.dll"
+                "C:\\Users\\marci\\RAg\\Ollama-RAG-Sync\\MCP\\src\\bin\\Debug\\net8.0\\Ollama-RAG-Sync.dll"
             ]
         }
     }

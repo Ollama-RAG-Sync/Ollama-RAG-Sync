@@ -15,6 +15,15 @@ param(
     [hashtable]$WhereFilter = @{},
     
     [Parameter(Mandatory=$false)]
+    [switch]$EnableReranking,
+    
+    [Parameter(Mandatory=$false)]
+    [string]$RerankModel = "",
+    
+    [Parameter(Mandatory=$false)]
+    [int]$RerankTopK = 0,
+    
+    [Parameter(Mandatory=$false)]
     [string]$ChromaDbPath,
     
     [Parameter(Mandatory=$false)]
@@ -59,11 +68,23 @@ $parameters = @{
     MaxResults = $MaxResults
     MinScore = $MinScore
     ReturnSourceContent = $ReturnSourceContent
-    CollectionName = $CollectionName
+    CollectionName = $CollectionName + "_" + $EmbeddingModel
 }
 
 if ($WhereFilter.Count -gt 0) {
     $parameters.WhereFilter = $WhereFilter
+}
+
+if ($EnableReranking) {
+    $parameters.EnableReranking = $true
+    
+    if (-not [string]::IsNullOrEmpty($RerankModel)) {
+        $parameters.RerankModel = $RerankModel
+    }
+    
+    if ($RerankTopK -gt 0) {
+        $parameters.RerankTopK = $RerankTopK
+    }
 }
 
 $results = Query-VectorDocuments @parameters
