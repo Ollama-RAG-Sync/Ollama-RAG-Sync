@@ -1,8 +1,29 @@
 # Multi-Collection Storage Implementation
 
+## 📑 Table of Contents
+
+- [Overview](#overview)
+- [Changes Made](#changes-made)
+- [Behavior](#behavior)
+- [Benefits](#benefits)
+- [Collection Structure](#collection-structure)
+- [Migration Notes](#migration-notes)
+- [Performance Considerations](#performance-considerations)
+- [Technical Details](#technical-details)
+- [Troubleshooting](#troubleshooting)
+
 ## Overview
 
 Documents are now automatically stored in **both** the "default" collection and any specifically named collection when added to the vector store. This ensures documents are always available in the default collection while also being organized in named collections.
+
+### Key Benefits
+
+| Benefit | Description |
+|---------|-------------|
+| ✅ **Universal Access** | All documents always available in "default" collection |
+| ✅ **Flexible Organization** | Group documents by topic, project, or department |
+| ✅ **No Duplication Overhead** | Same document ID across collections |
+| ✅ **Query Flexibility** | Search everything or specific subsets |
 
 ## Changes Made
 
@@ -100,3 +121,32 @@ ChromaDB
 - Metadata includes `"collection": "{coll_name}"` to track which collection each instance belongs to
 - Deletion from one collection does not affect other collections
 - Each collection maintains independent HNSW indices for optimal search performance
+
+## Troubleshooting
+
+### Document Not Found in Default Collection
+**Issue:** Document added to named collection but not appearing in "default"
+**Solution:**
+- Verify you're using the updated `Vectors-Embeddings.psm1` module
+- Re-process the document
+- Check module is imported: `Import-Module .\Vectors-Embeddings.psm1 -Force`
+
+### Query Returns Different Results
+**Issue:** Same document ID returns different results in different collections
+**Expected:** This is normal - metadata differs by collection
+
+### Performance After Update
+**Issue:** Writes seem slower after implementing multi-collection storage  
+**Solution:** This is expected due to dual writes but should be minimal
+
+### Remove Document from All Collections
+```powershell
+# Remove from all collections
+$collections = @("default", "technical", "api-docs")
+foreach ($col in $collections) {
+    Remove-DocumentFromVectors -DocumentId "<id>" -CollectionName $col
+}
+```
+
+---
+**Last Updated:** October 5, 2025

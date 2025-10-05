@@ -1,8 +1,24 @@
 # Ollama-RAG-Sync Architecture
 
-## Improved Project Structure
+## 📑 Table of Contents
+
+- [Overview](#overview)
+- [Directory Structure](#directory-structure)
+- [Key Improvements](#key-improvements)
+- [Testing Strategy](#testing-strategy)
+- [Testing Commands](#testing-commands)
+- [Configuration Management](#configuration-management)
+- [Best Practices](#best-practices)
+- [Migration Path](#migration-path)
+- [Dependencies](#dependencies)
+- [Performance Considerations](#performance-considerations)
+- [Security Considerations](#security-considerations)
+
+## Overview
 
 This document describes the improved architecture and testing strategy for the Ollama-RAG-Sync project.
+
+The system is organized into modular components with clear separation of concerns, comprehensive testing, and robust configuration management.
 
 ## Directory Structure
 
@@ -110,33 +126,13 @@ Ollama-RAG-Sync/
 
 ## Key Improvements
 
-### 1. **Separation of Concerns**
-- **Modules/** folders contain reusable PowerShell modules
-- **Scripts/** folders contain executable scripts
-- **Functions/** folders contain individual function files
-- **Tests/** folders organized by test type (Unit/Integration)
-
-### 2. **Common Utilities**
-- Centralized configuration management
-- Shared logging functionality
-- Common validation helpers
-- Reduces code duplication across components
-
-### 3. **Comprehensive Testing**
-- **Unit Tests**: Test individual functions and modules in isolation
-- **Integration Tests**: Test component interactions
-- **End-to-End Tests**: Test complete workflows
-- Test fixtures for consistent test data
-
-### 4. **MCP Server Organization**
-- Separate Models, Services, and Extensions
-- Dedicated test project with proper references
-- Better maintainability and testability
-
-### 5. **CI/CD Integration**
-- Automated testing on every commit
-- Multi-platform test execution
-- Code quality checks
+| Improvement | Description |
+|-------------|-------------|
+| **1. Separation of Concerns** | • **Modules/** - Reusable PowerShell modules<br>• **Scripts/** - Executable scripts<br>• **Functions/** - Individual function files<br>• **Tests/** - Organized by test type (Unit/Integration) |
+| **2. Common Utilities** | • Centralized configuration management<br>• Shared logging functionality<br>• Common validation helpers<br>• Reduces code duplication across components |
+| **3. Comprehensive Testing** | • **Unit Tests** - Test individual functions and modules in isolation<br>• **Integration Tests** - Test component interactions<br>• **End-to-End Tests** - Test complete workflows<br>• Test fixtures for consistent test data |
+| **4. MCP Server Organization** | • Separate Models, Services, and Extensions<br>• Dedicated test project with proper references<br>• Better maintainability and testability |
+| **5. CI/CD Integration** | • Automated testing on every commit<br>• Multi-platform test execution<br>• Code quality checks |
 
 ## Testing Strategy
 

@@ -1,21 +1,37 @@
 # Reranking Feature - Complete Implementation Summary
 
+## 📑 Table of Contents
+
+- [What Was Added](#-what-was-added)
+- [Files Modified/Created](#-files-modifiedcreated)
+- [How It Works](#-how-it-works)
+- [Quick Start Examples](#-quick-start-examples)
+- [Result Format](#-result-format)
+- [Performance](#-performance)
+- [Testing](#-testing)
+- [When to Use Reranking](#-when-to-use-reranking)
+- [Configuration Options](#-configuration-options)
+
 ## ✅ What Was Added
 
 Successfully implemented LLM-based reranking for both query functions in the Ollama-RAG-Sync system.
 
 ### Functions Enhanced
 
-1. **Query-VectorChunks** - Search document chunks with optional reranking
-2. **Query-VectorDocuments** - Search full documents with optional reranking
+| Function | Description |
+|----------|-------------|
+| **Query-VectorChunks** | Search document chunks with optional reranking |
+| **Query-VectorDocuments** | Search full documents with optional reranking |
 
 ### Key Features
 
-- 🎯 **Two-Stage Retrieval**: Fast vector search + LLM relevance scoring
-- 🔄 **Backward Compatible**: Existing code works without changes
-- ⚙️ **Configurable**: Adjust models, candidate counts, and scoring weights
-- 📊 **Rich Metadata**: Results include rerank scores and original similarity
-- 🚀 **Easy to Use**: Single switch to enable (`-EnableReranking`)
+| Feature | Description |
+|---------|-------------|
+| 🎯 **Two-Stage Retrieval** | Fast vector search + LLM relevance scoring |
+| 🔄 **Backward Compatible** | Existing code works without changes |
+| ⚙️ **Configurable** | Adjust models, candidate counts, and scoring weights |
+| 📊 **Rich Metadata** | Results include rerank scores and original similarity |
+| 🚀 **Easy to Use** | Single switch to enable (`-EnableReranking`) |
 
 ## 📦 Files Modified/Created
 

@@ -5,20 +5,40 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.0+-blue.svg)](https://github.com/PowerShell/PowerShell)
 [![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg)](https://dotnet.microsoft.com/)
 
-A comprehensive RAG (Retrieval-Augmented Generation) system that integrates with Ollama for document processing, vector storage, and semantic search. Built with PowerShell and .NET, featuring automated file tracking, REST APIs, and AI assistant integration through the Model Context Protocol.
+> A comprehensive RAG (Retrieval-Augmented Generation) system that integrates with Ollama for document processing, vector storage, and semantic search. Built with PowerShell and .NET, featuring automated file tracking, REST APIs, and AI assistant integration through the Model Context Protocol.
+
+## 📑 Table of Contents
+
+- [Key Features](#-key-features)
+- [Architecture](#-architecture)
+- [Prerequisites](#-prerequisites)
+- [Installation](#-installation)
+- [Configuration](#-configuration)
+- [Usage](#-usage)
+- [API Endpoints](#-api-endpoints)
+- [MCP Integration](#-mcp-integration)
+- [LLM-Based Reranking](#-llm-based-reranking)
+- [Multi-Collection Storage](#-multi-collection-storage)
+- [Testing](#-testing)
+- [Troubleshooting](#-troubleshooting)
+- [Documentation](#-documentation)
+- [Contributing](#-contributing)
+- [License](#-license)
 
 ## ✨ Key Features
 
-- 🔄 **Automated File Tracking** - Monitor directories for changes and automatically process new/modified files with SQLite-based tracking
-- 📄 **Advanced Document Processing** - Convert PDFs and documents to embeddings with intelligent chunking and overlap support
-- 🔍 **Semantic Search** - Store and search document embeddings using Ollama models with similarity-based retrieval
-- 🎯 **LLM-Based Reranking** - Improve search relevance with optional reranking using LLM evaluation (new!)
-- � **Multi-Collection Storage** - Documents automatically stored in both "default" and named collections for flexible organization (new!)
-- �🚀 **REST APIs** - Complete API ecosystem for file tracking, processing, and vector operations
-- 🤖 **MCP Integration** - Model Context Protocol server for seamless AI assistant integration
-- ⚙️ **Flexible Configuration** - Environment-based configuration with sensible defaults and easy customization
-- ✅ **Comprehensive Testing** - 59+ automated tests with CI/CD pipeline for reliability
-- 📊 **Multi-Platform** - Works on Windows, Linux, and macOS
+| Feature | Description |
+|---------|-------------|
+| 🔄 **Automated File Tracking** | Monitor directories for changes and automatically process new/modified files with SQLite-based tracking |
+| 📄 **Advanced Document Processing** | Convert PDFs and documents to embeddings with intelligent chunking and overlap support |
+| 🔍 **Semantic Search** | Store and search document embeddings using Ollama models with similarity-based retrieval |
+| 🎯 **LLM-Based Reranking** | Improve search relevance with optional reranking using LLM evaluation *(NEW!)* |
+| 📚 **Multi-Collection Storage** | Documents automatically stored in both "default" and named collections for flexible organization *(NEW!)* |
+| 🚀 **REST APIs** | Complete API ecosystem for file tracking, processing, and vector operations |
+| 🤖 **MCP Integration** | Model Context Protocol server for seamless AI assistant integration |
+| ⚙️ **Flexible Configuration** | Environment-based configuration with sensible defaults and easy customization |
+| ✅ **Comprehensive Testing** | 59+ automated tests with CI/CD pipeline for reliability |
+| 📊 **Multi-Platform** | Works on Windows, Linux, and macOS |
 
 ## 🏗️ Architecture
 
@@ -46,7 +66,7 @@ Vector database operations and similarity search.
 - **Port**: 10001 (configurable via `OLLAMA_RAG_VECTORS_API_PORT`)
 - **Features**: Document embedding, similarity search, vector storage, LLM-based reranking, multi-collection storage
 - **Modules**: Core functionality in `Modules/` and API functions in `Functions/`
-- **Documentation**: See `RAG/Vectors/RERANKING.md` for reranking details and `MULTI_COLLECTION_STORAGE.md` for collection management
+- **Documentation**: See `RAG/Vectors/RERANKING.md` for reranking details and `docs/MULTI_COLLECTION_STORAGE.md` for collection management
 
 ### 4. Search (`RAG/Search/`)
 
@@ -668,20 +688,26 @@ Invoke-RestMethod -Uri "http://localhost:10003/api/collections"
 ## 🔌 API Endpoints
 
 ### FileTracker API (Port 10003)
-- `GET /api/collections` - List all collections
-- `POST /api/collections` - Create new collection
-- `GET /api/collections/{name}/files` - Get files in collection
-- `PUT /api/files/{id}/status` - Update file status
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/collections` | List all collections |
+| `POST` | `/api/collections` | Create new collection |
+| `GET` | `/api/collections/{name}/files` | Get files in collection |
+| `PUT` | `/api/files/{id}/status` | Update file status |
 
 ### Vectors API (Port 10001)
 
-- `POST /api/documents` - Add document to vector database
-- `DELETE /api/documents/{id}` - Remove document
-- `POST /api/search/documents` - Search documents by query (supports reranking)
-- `POST /api/search/chunks` - Search text chunks (supports reranking)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/documents` | Add document to vector database |
+| `DELETE` | `/api/documents/{id}` | Remove document |
+| `POST` | `/api/search/documents` | Search documents by query (supports reranking) |
+| `POST` | `/api/search/chunks` | Search text chunks (supports reranking) |
 
-**Reranking Support:**
+**Reranking Support:**  
 Both search endpoints support optional LLM-based reranking for improved relevance:
+
 ```json
 {
   "query": "search query",
@@ -852,9 +878,9 @@ ChromaDB/
 - New documents automatically use multi-collection storage
 - Re-process existing documents to add them to both collections
 
-For complete details, see [MULTI_COLLECTION_STORAGE.md](MULTI_COLLECTION_STORAGE.md).
+For complete details, see [docs/MULTI_COLLECTION_STORAGE.md](docs/MULTI_COLLECTION_STORAGE.md).
 
-## �📁 Project Structure
+## 📁 Project Structure
 
 ```
 Ollama-RAG-Sync/
@@ -894,7 +920,12 @@ Ollama-RAG-Sync/
 │   └── Start-RAG.ps1           # Startup script
 ├── scripts/
 │   └── run-tests.ps1           # Test runner
-├── ARCHITECTURE.md             # Architecture overview
+├── docs/
+│   ├── ARCHITECTURE.md         # Architecture overview
+│   ├── MULTI_COLLECTION_STORAGE.md  # Collection management
+│   ├── RERANKING_SUMMARY.md    # Reranking feature summary
+│   ├── TESTING.md              # Testing guide
+│   └── CONTRIBUTING.md         # Contribution guidelines
 ├── PROJECT_IMPROVEMENTS.md     # Recent improvements
 ├── QUICKSTART_TESTING.md       # Testing quick start
 └── README.md                   # This file
@@ -1261,17 +1292,18 @@ Install-Module -Name Pester, PSScriptAnalyzer -Force
 Invoke-ScriptAnalyzer -Path .\RAG -Recurse
 ```
 
-## � Documentation
+## 📚 Documentation
 
 Comprehensive documentation is available:
 
-- **[Architecture Overview](ARCHITECTURE.md)** - System design and structure
+- **[Architecture Overview](docs/ARCHITECTURE.md)** - System design and structure
 - **[Testing Guide](docs/TESTING.md)** - Complete testing documentation
 - **[Contributing Guide](docs/CONTRIBUTING.md)** - How to contribute
+- **[Multi-Collection Storage](docs/MULTI_COLLECTION_STORAGE.md)** - Collection management guide
+- **[Reranking Summary](docs/RERANKING_SUMMARY.md)** - Reranking feature summary
+- **[Reranking Guide](RAG/Vectors/RERANKING.md)** - LLM-based reranking documentation
 - **[Quick Start Testing](QUICKSTART_TESTING.md)** - Testing in 5 minutes
 - **[Project Improvements](PROJECT_IMPROVEMENTS.md)** - Recent enhancements
-- **[Multi-Collection Storage](MULTI_COLLECTION_STORAGE.md)** - Collection management guide
-- **[Reranking Guide](RAG/Vectors/RERANKING.md)** - LLM-based reranking documentation
 
 ## 🗺️ Roadmap
 
