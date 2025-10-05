@@ -1328,12 +1328,6 @@ Comprehensive documentation is available:
 - [ ] Batch reranking optimization
 - [ ] Authentication and authorization
 
-## 💬 Community & Support
-
-- **Issues**: [GitHub Issues](https://github.com/your-username/Ollama-RAG-Sync/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-username/Ollama-RAG-Sync/discussions)
-- **Documentation**: [Wiki](https://github.com/your-username/Ollama-RAG-Sync/wiki)
-
 ## 📊 Project Statistics
 
 - **Language**: PowerShell (75%), C# (20%), Python (5%)
