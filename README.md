@@ -1124,4 +1124,4 @@ For questions, suggestions, or feedback:
 
 **Made with ❤️ by the Ollama-RAG-Sync Team**
 
-*Last updated: October 2, 2025*
+*Last updated: October 5, 2025*
