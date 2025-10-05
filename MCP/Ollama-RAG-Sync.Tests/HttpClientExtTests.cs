@@ -1,10 +1,15 @@
 using Moq;
 using Moq.Protected;
+using ORSMcp.Models;
 using System.Net;
 using System.Text.Json;
 
 namespace ORSMcp.Tests
 {
+    /// <summary>
+    /// Tests for backward compatibility - these test the old class names that are now replaced.
+    /// New tests are in Services/SearchServiceTests.cs and Models/ModelValidationTests.cs
+    /// </summary>
     public class HttpClientExtTests
     {
         private HttpClient CreateMockHttpClient(HttpStatusCode statusCode, string responseContent)
@@ -27,7 +32,7 @@ namespace ORSMcp.Tests
         }
 
         [Fact]
-        public async Task ReadJsonDocumentsAsync_SuccessfulResponse_ShouldReturnDocumentResponseData()
+        public async Task DocumentSearchRequest_SuccessfulResponse_ShouldDeserialize()
         {
             // Arrange
             var responseJson = @"{
@@ -42,17 +47,11 @@ namespace ORSMcp.Tests
                 ]
             }";
             var client = CreateMockHttpClient(HttpStatusCode.OK, responseJson);
-            var request = new RequestData
-            {
-                Query = "test query",
-                Threshold = 0.8m,
-                MaxResults = 5,
-                ReturnContent = true,
-                CollectionName = "test-collection"
-            };
 
             // Act
-            var result = await client.ReadJsonDocumentsAsync(request, "http://test.com/api", CancellationToken.None);
+            var response = await client.GetAsync("http://test.com/api");
+            var content = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<DocumentSearchResponse>(content);
 
             // Assert
             Assert.NotNull(result);
@@ -64,26 +63,7 @@ namespace ORSMcp.Tests
         }
 
         [Fact]
-        public async Task ReadJsonDocumentsAsync_NonSuccessStatusCode_ShouldThrowHttpRequestException()
-        {
-            // Arrange
-            var client = CreateMockHttpClient(HttpStatusCode.InternalServerError, "Error");
-            var request = new RequestData
-            {
-                Query = "test query",
-                Threshold = 0.8m,
-                MaxResults = 5,
-                ReturnContent = true,
-                CollectionName = "test-collection"
-            };
-
-            // Act & Assert
-            await Assert.ThrowsAsync<HttpRequestException>(async () =>
-                await client.ReadJsonDocumentsAsync(request, "http://test.com/api", CancellationToken.None));
-        }
-
-        [Fact]
-        public async Task ReadJsonChunksAsync_SuccessfulResponse_ShouldReturnChunkResponseData()
+        public async Task ChunkSearchResponse_SuccessfulResponse_ShouldDeserialize()
         {
             // Arrange
             var responseJson = @"{
@@ -101,17 +81,11 @@ namespace ORSMcp.Tests
                 ]
             }";
             var client = CreateMockHttpClient(HttpStatusCode.OK, responseJson);
-            var request = new ChunkRequestData
-            {
-                Query = "test query",
-                Threshold = 0.7m,
-                AggregateByDocument = false,
-                MaxResults = 3,
-                CollectionName = "test-collection"
-            };
 
             // Act
-            var result = await client.ReadJsonChunksAsync(request, "http://test.com/api", CancellationToken.None);
+            var response = await client.GetAsync("http://test.com/api");
+            var content = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<ChunkSearchResponse>(content);
 
             // Assert
             Assert.NotNull(result);
@@ -123,27 +97,7 @@ namespace ORSMcp.Tests
         }
 
         [Fact]
-        public async Task ReadJsonChunksAsync_AggregateByDocumentTrue_ShouldThrowException()
-        {
-            // Arrange
-            var client = CreateMockHttpClient(HttpStatusCode.OK, "{}");
-            var request = new ChunkRequestData
-            {
-                Query = "test query",
-                Threshold = 0.7m,
-                AggregateByDocument = true,
-                MaxResults = 3,
-                CollectionName = "test-collection"
-            };
-
-            // Act & Assert
-            var exception = await Assert.ThrowsAsync<Exception>(async () =>
-                await client.ReadJsonChunksAsync(request, "http://test.com/api", CancellationToken.None));
-            Assert.Contains("AggregateByDocument must be false", exception.Message);
-        }
-
-        [Fact]
-        public async Task ReadJsonChunksAggregatedAsync_SuccessfulResponse_ShouldReturnAggregatedData()
+        public async Task ChunkAggregatedSearchResponse_SuccessfulResponse_ShouldDeserialize()
         {
             // Arrange
             var responseJson = @"{
@@ -166,17 +120,11 @@ namespace ORSMcp.Tests
                 ]
             }";
             var client = CreateMockHttpClient(HttpStatusCode.OK, responseJson);
-            var request = new ChunkRequestData
-            {
-                Query = "test query",
-                Threshold = 0.7m,
-                AggregateByDocument = true,
-                MaxResults = 3,
-                CollectionName = "test-collection"
-            };
 
             // Act
-            var result = await client.ReadJsonChunksAggregatedAsync(request, "http://test.com/api", CancellationToken.None);
+            var response = await client.GetAsync("http://test.com/api");
+            var content = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<ChunkAggregatedSearchResponse>(content);
 
             // Assert
             Assert.NotNull(result);
@@ -188,42 +136,43 @@ namespace ORSMcp.Tests
         }
 
         [Fact]
-        public async Task ReadJsonChunksAggregatedAsync_AggregateByDocumentFalse_ShouldThrowException()
+        public void DocumentSearchRequest_Validation_ShouldWork()
         {
-            // Arrange
-            var client = CreateMockHttpClient(HttpStatusCode.OK, "{}");
-            var request = new ChunkRequestData
+            // Arrange & Act
+            var request = new DocumentSearchRequest
             {
-                Query = "test query",
+                Query = "test",
+                CollectionName = "collection",
                 Threshold = 0.7m,
-                AggregateByDocument = false,
-                MaxResults = 3,
-                CollectionName = "test-collection"
+                MaxResults = 5
             };
 
-            // Act & Assert
-            var exception = await Assert.ThrowsAsync<Exception>(async () =>
-                await client.ReadJsonChunksAggregatedAsync(request, "http://test.com/api", CancellationToken.None));
-            Assert.Contains("AggregateByDocument must be true", exception.Message);
+            // Assert
+            Assert.Equal("test", request.Query);
+            Assert.Equal("collection", request.CollectionName);
+            Assert.Equal(0.7m, request.Threshold);
+            Assert.Equal(5, request.MaxResults);
         }
 
         [Fact]
-        public async Task ReadJsonChunksAsync_NonSuccessStatusCode_ShouldThrowHttpRequestException()
+        public void ChunkSearchRequest_Validation_ShouldWork()
         {
-            // Arrange
-            var client = CreateMockHttpClient(HttpStatusCode.BadRequest, "Bad Request");
-            var request = new ChunkRequestData
+            // Arrange & Act
+            var request = new ChunkSearchRequest
             {
-                Query = "test query",
-                Threshold = 0.7m,
-                AggregateByDocument = false,
-                MaxResults = 3,
-                CollectionName = "test-collection"
+                Query = "test",
+                CollectionName = "collection",
+                Threshold = 0.6m,
+                MaxResults = 10,
+                AggregateByDocument = true
             };
 
-            // Act & Assert
-            await Assert.ThrowsAsync<HttpRequestException>(async () =>
-                await client.ReadJsonChunksAsync(request, "http://test.com/api", CancellationToken.None));
+            // Assert
+            Assert.Equal("test", request.Query);
+            Assert.Equal("collection", request.CollectionName);
+            Assert.Equal(0.6m, request.Threshold);
+            Assert.Equal(10, request.MaxResults);
+            Assert.True(request.AggregateByDocument);
         }
     }
 }
