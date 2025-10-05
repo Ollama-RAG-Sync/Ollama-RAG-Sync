@@ -68,7 +68,7 @@ $DatabasePath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
 $fileTrackerSharedModulePath = Join-Path -Path $PSScriptRoot -ChildPath "FileTracker-Shared.psm1"
 $databaseSharedModulePath = Join-Path -Path $PSScriptRoot -ChildPath "Database-Shared.psm1"
 Import-Module -Name $fileTrackerSharedModulePath -Force -Verbose
-Import-Module -Name $databaseSharedModulePath -Force -Verbose
+Import-Module -Name $databaseSharedModulePath -Force -Verbose -Global
 
 # Determine Database Path (using the imported function)
 # $DatabasePath is already computed earlier in the script, just ensure it uses the function if needed

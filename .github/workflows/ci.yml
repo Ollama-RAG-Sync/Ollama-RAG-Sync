@@ -1,0 +1,243 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  POWERSHELL_VERSION: '7.4.x'
+
+jobs:
+  test-powershell:
+    name: Test PowerShell Components
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup PowerShell
+      uses: actions/setup-powershell@v1
+      with:
+        pwsh-version: ${{ env.POWERSHELL_VERSION }}
+    
+    - name: Install Pester
+      shell: pwsh
+      run: |
+        Install-Module -Name Pester -MinimumVersion 5.0.0 -Force -Scope CurrentUser
+        Import-Module Pester
+    
+    - name: Install SQLite (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y sqlite3 libsqlite3-dev
+    
+    - name: Install SQLite (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        brew install sqlite
+    
+    - name: Run PowerShell Unit Tests
+      shell: pwsh
+      run: |
+        .\scripts\run-tests.ps1 -TestType Unit -Detailed
+    
+    - name: Upload PowerShell Test Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: powershell-test-results-${{ matrix.os }}
+        path: |
+          TestResults/
+          *.xml
+
+  test-dotnet:
+    name: Test .NET MCP Server
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+    
+    - name: Restore dependencies
+      run: dotnet restore MCP/Ollama-RAG-Sync.sln
+    
+    - name: Build
+      run: dotnet build MCP/Ollama-RAG-Sync.sln --configuration Release --no-restore
+    
+    - name: Run .NET Tests
+      run: dotnet test MCP/Ollama-RAG-Sync.sln --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
+    
+    - name: Upload .NET Test Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: dotnet-test-results-${{ matrix.os }}
+        path: |
+          MCP/tests/**/TestResults/*.trx
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: windows-latest
+    needs: [test-powershell, test-dotnet]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup PowerShell
+      uses: actions/setup-powershell@v1
+      with:
+        pwsh-version: ${{ env.POWERSHELL_VERSION }}
+    
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install chromadb requests numpy
+    
+    - name: Install Pester
+      shell: pwsh
+      run: |
+        Install-Module -Name Pester -MinimumVersion 5.0.0 -Force -Scope CurrentUser
+    
+    - name: Run Integration Tests
+      shell: pwsh
+      run: |
+        .\scripts\run-tests.ps1 -TestType Integration -Detailed
+      env:
+        OLLAMA_RAG_INSTALL_PATH: ${{ github.workspace }}\test-install
+        OLLAMA_RAG_EMBEDDING_MODEL: "mxbai-embed-large:latest"
+        OLLAMA_RAG_URL: "http://localhost:11434"
+    
+    - name: Upload Integration Test Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: integration-test-results
+        path: |
+          TestResults/
+
+  code-quality:
+    name: Code Quality Checks
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup PowerShell
+      uses: actions/setup-powershell@v1
+      with:
+        pwsh-version: ${{ env.POWERSHELL_VERSION }}
+    
+    - name: Install PSScriptAnalyzer
+      shell: pwsh
+      run: |
+        Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+    
+    - name: Run PSScriptAnalyzer
+      shell: pwsh
+      run: |
+        $results = Invoke-ScriptAnalyzer -Path .\RAG -Recurse -Settings PSGallery
+        if ($results) {
+          $results | Format-Table -AutoSize
+          Write-Host "Found $($results.Count) issues" -ForegroundColor Yellow
+          # Don't fail the build for warnings, just report them
+          if ($results | Where-Object { $_.Severity -eq 'Error' }) {
+            exit 1
+          }
+        } else {
+          Write-Host "No issues found!" -ForegroundColor Green
+        }
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+    
+    - name: Run .NET Code Analysis
+      run: |
+        dotnet format MCP/Ollama-RAG-Sync.sln --verify-no-changes --verbosity diagnostic
+      continue-on-error: true
+
+  build:
+    name: Build and Package
+    runs-on: windows-latest
+    needs: [test-powershell, test-dotnet]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+    
+    - name: Build MCP Server
+      run: |
+        dotnet publish MCP/Ollama-RAG-Sync.csproj -c Release -o publish/mcp
+    
+    - name: Create Release Archive
+      shell: pwsh
+      run: |
+        $version = Get-Date -Format "yyyy.MM.dd.HHmm"
+        Compress-Archive -Path RAG,MCP/publish/mcp,README.md,LICENSE,ARCHITECTURE.md -DestinationPath "Ollama-RAG-Sync-$version.zip"
+    
+    - name: Upload Build Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-package
+        path: Ollama-RAG-Sync-*.zip
+
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [test-powershell, test-dotnet, integration-tests, code-quality]
+    if: always()
+    
+    steps:
+    - name: Download All Artifacts
+      uses: actions/download-artifact@v4
+    
+    - name: Generate Summary
+      shell: bash
+      run: |
+        echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Status" >> $GITHUB_STEP_SUMMARY
+        echo "- PowerShell Tests: ${{ needs.test-powershell.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- .NET Tests: ${{ needs.test-dotnet.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Integration Tests: ${{ needs.integration-tests.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Code Quality: ${{ needs.code-quality.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [[ "${{ needs.test-powershell.result }}" == "success" ]] && \
+           [[ "${{ needs.test-dotnet.result }}" == "success" ]] && \
+           [[ "${{ needs.integration-tests.result }}" == "success" ]] && \
+           [[ "${{ needs.code-quality.result }}" == "success" ]]; then
+          echo "✅ All tests passed!" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ Some tests failed. Please review the logs." >> $GITHUB_STEP_SUMMARY
+        fi

@@ -75,3 +75,71 @@ MCP/obj/Debug/net8.0/Ollama-RAG-Sync.dll
 MCP/obj/Debug/net8.0/Ollama-RAG-Sync.genruntimeconfig.cache
 MCP/obj/Debug/net8.0/Ollama-RAG-Sync.pdb
 MCP/obj/Debug/net8.0/Ollama-RAG-Sync.sourcelink.json
+
+# General patterns for build outputs
+**/bin/
+**/obj/
+**/publish/
+**/.vs/
+*.user
+*.suo
+
+# Test Results
+TestResults/
+coverage/
+*.trx
+*.coverage
+*.coveragexml
+
+# Databases
+*.db
+*.db-shm
+*.db-wal
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*~
+test-install/
+test_*.db
+test_dir_*/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Environment variables
+.env
+.env.local
+
+# ChromaDB
+chroma_data/
+Chroma.db/
+
+# Package managers
+node_modules/
+packages/
+
+# PowerShell
+*.ps1xml
+PSGallery/

@@ -40,20 +40,31 @@ function Initialize-SqliteEnvironment {
 
     try {
         Write-Verbose "Loading SQLite assemblies from $InstallPath..."
+        
         Add-Type -Path $sqliteAssemblyPath
         Add-Type -Path $sqliteAssemblyPath2
         Add-Type -Path $sqliteAssemblyPath3
         
         # Set SQLitePCLRaw provider
+        # Fallback to manual provider setup
         [SQLitePCL.raw]::SetProvider([SQLitePCL.SQLite3Provider_e_sqlite3]::new())
-        Write-Verbose "SQLitePCLRaw provider set."
-
+        Write-Verbose "Initialized SQLitePCL using manual provider setup"
+         
         $script:SqliteEnvironmentInitialized = $true
         Write-Verbose "SQLite environment initialized successfully."
         return $true
     }
     catch {
         Write-Error "Error loading SQLite assemblies: $_"
+        Write-Error "Exception details: $($_.Exception.GetType().FullName)"
+        if ($_.Exception.InnerException) {
+            Write-Error "Inner exception: $($_.Exception.InnerException.Message)"
+        }
+        if ($_.Exception.LoaderExceptions) {
+            $_.Exception.LoaderExceptions | ForEach-Object {
+                Write-Error "Loader exception: $($_.Message)"
+            }
+        }
         # Reset flag on failure
         $script:SqliteEnvironmentInitialized = $false 
         return $false
@@ -89,7 +100,6 @@ function Get-DatabaseConnection {
         $connectionString = "Data Source=$DatabasePath"
         $connection = New-Object Microsoft.Data.Sqlite.SqliteConnection($connectionString)
         $connection.Open()
-        
         return $connection
     }
     catch {

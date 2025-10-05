@@ -1,0 +1,28 @@
+Sample Document for Testing
+
+This is a sample document used for testing the Ollama-RAG-Sync system.
+It contains multiple lines of text to test chunking and embedding functionality.
+
+Section 1: Introduction
+The RAG (Retrieval-Augmented Generation) system combines the power of vector search
+with large language models to provide accurate and contextual responses.
+
+Section 2: Architecture
+The system consists of several components:
+- FileTracker: Monitors and tracks file changes
+- Processor: Converts documents to searchable format
+- Vectors: Manages embeddings and similarity search
+- Search: Provides high-level search functionality
+- MCP Server: Integrates with AI assistants
+
+Section 3: Benefits
+Key benefits include:
+1. Automatic document processing
+2. Semantic search capabilities
+3. Integration with AI assistants
+4. Scalable architecture
+5. Easy configuration
+
+Section 4: Conclusion
+This sample document helps verify that the system can properly
+process, chunk, embed, and retrieve text content.

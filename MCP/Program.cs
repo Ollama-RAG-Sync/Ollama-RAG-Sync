@@ -10,7 +10,7 @@ using System.Text.Json.Serialization;
 
 namespace ORSMcp
 {
-    internal class Program
+    public class Program
     {
         static async Task Main(string[] args)
         {
@@ -153,7 +153,7 @@ public class ChunkAggregatedResponseItemData
 }
 
 
-internal static class HttpClientExt
+public static class HttpClientExt
 {
     public static async Task<DocumentResponseData> ReadJsonDocumentsAsync(this HttpClient client, RequestData request, string requestUri, CancellationToken cancellationToken)
     {

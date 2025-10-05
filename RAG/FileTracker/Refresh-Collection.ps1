@@ -43,7 +43,7 @@ if ([string]::IsNullOrWhiteSpace($InstallPath)) {
 # Import the shared database module
 $scriptParentPath = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 $databaseSharedModulePath = Join-Path -Path $scriptParentPath -ChildPath "Database-Shared.psm1"
-Import-Module -Name $databaseSharedModulePath -Force
+Import-Module -Name $databaseSharedModulePath -Force -Global
 
 # Determine Database Path
 if (-not $DatabasePath) {

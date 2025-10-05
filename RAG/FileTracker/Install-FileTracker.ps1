@@ -37,20 +37,20 @@ if ([string]::IsNullOrWhiteSpace($InstallPath)) {
 $packages = @(
     @{
         Name = "Microsoft.Data.Sqlite.Core"
-        Version = "9.0.3"
+        Version = "9.0.9"
         SourcePath = "lib/net8.0/Microsoft.Data.Sqlite.dll"
         TargetFile = "Microsoft.Data.Sqlite.dll"
     },
     @{
         Name = "SQLitePCLRaw.core"
-        Version = "2.1.10"
+        Version = "3.0.2"
         SourcePath = "lib/netstandard2.0/SQLitePCLRaw.core.dll"
         TargetFile = "SQLitePCLRaw.core.dll"
     },
     @{
         Name = "SQLitePCLRaw.provider.e_sqlite3"
-        Version = "2.1.11"
-        SourcePath = "lib/netstandard2.0/SQLitePCLRaw.provider.e_sqlite3.dll"
+        Version = "3.0.2"
+        SourcePath = "lib/net8.0/SQLitePCLRaw.provider.e_sqlite3.dll"
         TargetFile = "SQLitePCLRaw.provider.e_sqlite3.dll"
     },
     @{
@@ -154,8 +154,8 @@ function Get-ProcessesWithHandles {
     if (Test-Path -Path $handleExe) {
         try {
             Write-Host "Using handle.exe to find processes with open handles to $FilePath..." -ForegroundColor Yellow
-            $outputFile = Join-Path -Path $installFolder -ChildPath "handles_output.txt"
-            $outputErrFile = Join-Path -Path $installFolder -ChildPath "handles_output.err.txt"
+            $outputFile = Join-Path -Path $InstallPath -ChildPath "handles_output.txt"
+            $outputErrFile = Join-Path -Path $InstallPath -ChildPath "handles_output.err.txt"
             $handleProcess = Start-Process -FilePath $handleExe -ArgumentList $FilePath, "-nobanner" -NoNewWindow -PassThru -RedirectStandardOutput $outputFile -RedirectStandardError $outputErrFile
             Start-Sleep -Seconds 5
             
@@ -195,7 +195,9 @@ function Get-ProcessesWithHandles {
         Get-Process | ForEach-Object {
             $process = $_
             try {
-                $process.Modules | Where-Object { $_.FileName -eq $fileName } | ForEach-Object {
+                $process.Modules | Where-Object { 
+                    $_.FileName -eq $FilePath
+                } | ForEach-Object {
                     if ($processes -notcontains $process) {
                         $processes += $process
                     }
@@ -221,7 +223,10 @@ function Install-Package {
     $targetFileName = $Package.TargetFile
     
     $nugetUrl = "https://www.nuget.org/api/v2/package/$packageName/$packageVersion"
-    $tempFile = Join-Path -Path $env:TEMP -ChildPath "$packageName.nupkg"
+    $guid = [guid]::NewGuid().ToString()
+    $tempFolder = $env:TEMP + "\$guid"
+    New-Item $tempFolder -ItemType Directory | Out-Null
+    $tempFile = Join-Path -Path $tempFolder -ChildPath "$packageName.nupkg"
     $targetFilePath = Join-Path -Path $InstallPath -ChildPath $targetFileName
     
     try {
@@ -239,12 +244,18 @@ function Install-Package {
         Write-Host "Downloading $packageName v$packageVersion..." -ForegroundColor Cyan
         Invoke-WebRequest -Uri $nugetUrl -OutFile $tempFile -ErrorAction Stop
         
+        # NuGet packages are ZIP files, rename for Expand-Archive
+        $tempZipFile = $tempFile -replace '\.nupkg$', '.zip'
+        if ($tempFile -ne $tempZipFile) {
+            Move-Item -Path $tempFile -Destination $tempZipFile -Force
+            $tempFile = $tempZipFile
+        }
+        
         # Extract package
         Write-Host "Extracting $packageName..." -ForegroundColor Cyan
-        if (Test-Path -Path $tempFolder) {
-            $null = Remove-Item -Path $tempFolder -Recurse -Force -ErrorAction Stop
-        }
+        Write-Host "Creating temporary extraction folder at $tempFolder" -ForegroundColor Cyan
         Expand-Archive -Path $tempFile -DestinationPath $tempFolder -Force -ErrorAction Stop
+        Write-Host "Finished extracting $packageName." -ForegroundColor Cyan
         
         # Try to copy the file
         $sourcePath = Join-Path -Path $tempFolder -ChildPath $sourceFilePath
@@ -279,7 +290,8 @@ function Install-Package {
         }
         
         try {
-            Copy-Item -Path $sourcePath -Destination $targetFilePath -Force -ErrorAction Stop
+            Write-Host "Copying $sourcePath to $targetFilePath..." -ForegroundColor Cyan
+            Copy-Item -Path $sourcePath -Destination $targetFilePath -Force -ErrorAction Stop -Verbose
         }
         catch {
             if ($Force) {
@@ -313,7 +325,13 @@ function Install-Package {
             }
         }
         
-        Write-Host "$targetFileName installed successfully." -ForegroundColor Green
+
+        if (-not (Test-Path -Path $targetFilePath)) {
+            Write-Host "$targetFileName - unknown error...." -ForegroundColor Red
+        }
+        else {
+            Write-Host "$targetFileName installed successfully...." -ForegroundColor Green
+        }
         return $true
     }
     catch {
@@ -323,7 +341,7 @@ function Install-Package {
     finally {
         # Clean up the NuGet package file
         if (Test-Path -Path $tempFile) {
-            $null = Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue
+            #$null = Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue
         }
     }
 }

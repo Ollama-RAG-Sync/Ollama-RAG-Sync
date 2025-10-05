@@ -22,7 +22,7 @@ if ([string]::IsNullOrWhiteSpace($InstallPath)) {
 
 # Import required modules
 Import-Module -Name "$PSScriptRoot\FileTracker-Shared.psm1" -Force
-Import-Module -Name "$PSScriptRoot\Database-Shared.psm1" -Force
+Import-Module -Name "$PSScriptRoot\Database-Shared.psm1" -Force -Global
 
 # Determine Database Path
 $DatabasePath = Get-DefaultDatabasePath -InstallPath $InstallPath

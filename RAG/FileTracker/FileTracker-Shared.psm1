@@ -39,7 +39,16 @@ function Update-FileProcessingStatus {
     )
     
     # Import the shared database module - needed for DB functions
-    Import-Module "Database-Shared.psm1" -Force
+    $databaseModulePath = Join-Path $PSScriptRoot "Database-Shared.psm1"
+    Import-Module $databaseModulePath -Force -Global
+
+    # Check if file exists when using SingleFile parameter set
+    if ($PSCmdlet.ParameterSetName -eq "SingleFile") {
+        if (-not (Test-Path -Path $FilePath -PathType Leaf)) {
+            Write-Error "File does not exist: $FilePath"
+            return $false
+        }
+    }
 
     # Determine new and old status values
     $newStatus = [int]$Dirty
@@ -128,8 +137,8 @@ function Update-FileProcessingStatus {
             # Count files with the old status within the specified collection
             $countCommand = $connection.CreateCommand()
             $countCommand.CommandText = "SELECT COUNT(*) FROM files WHERE Dirty = @OldStatus AND collection_id = @CollectionId"
-            $countCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@OldStatus", $oldStatus)))
-            $countCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $CollectionId)))
+            $null = $countCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@OldStatus", $oldStatus)))
+            $null = $countCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $CollectionId)))
             $countCommand.Transaction = $transaction # Assign transaction
             $filesToUpdateCount = [int]$countCommand.ExecuteScalar()
             
@@ -145,8 +154,8 @@ function Update-FileProcessingStatus {
             # Consider performance impact for very large collections if reporting individual files
             $selectCommand = $connection.CreateCommand()
             $selectCommand.CommandText = "SELECT id, FilePath, Deleted FROM files WHERE Dirty = @OldStatus AND collection_id = @CollectionId"
-            $selectCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@OldStatus", $oldStatus)))
-            $selectCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $CollectionId)))
+            $null = $selectCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@OldStatus", $oldStatus)))
+            $null = $selectCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $CollectionId)))
             $selectCommand.Transaction = $transaction # Assign transaction
             $reader = $selectCommand.ExecuteReader()
             
@@ -159,9 +168,9 @@ function Update-FileProcessingStatus {
             # Update all files in the specified collection
             $updateCommand = $connection.CreateCommand()
             $updateCommand.CommandText = "UPDATE files SET Dirty = @NewStatus WHERE Dirty = @OldStatus AND collection_id = @CollectionId"
-            $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@NewStatus", $newStatus)))
-            $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@OldStatus", $oldStatus)))
-            $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $CollectionId)))
+            $null = $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@NewStatus", $newStatus)))
+            $null = $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@OldStatus", $oldStatus)))
+            $null = $updateCommand.Parameters.Add((New-Object Microsoft.Data.Sqlite.SqliteParameter("@CollectionId", $CollectionId)))
             $updateCommand.Transaction = $transaction # Assign transaction
             $processed = $updateCommand.ExecuteNonQuery()
             
