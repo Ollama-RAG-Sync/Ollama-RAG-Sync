@@ -154,7 +154,7 @@ if ($ContextOnlyMode) {
 Write-LogInfo -Message "- Vectors API job ID: $($vectorsAPIJob.Id)" -Component "Start"
 Write-LogInfo -Message "- FileTracker job ID: $($fileTrackerJob.Id)" -Component "Start"
 
-Write-LogInfo -Message "" -Component "Start"
+Write-LogInfo -Message "==" -Component "Start"
 Write-LogInfo -Message "The system is now running in the background. To stop it:" -Component "Start"
 Write-LogInfo -Message "1. Stop the Vectors API job: Stop-Job -Id $($vectorsAPIJob.Id); Remove-Job -Id $($vectorsAPIJob.Id)" -Component "Start"
 Write-LogInfo -Message "2. Stop the FileTracker job: Stop-Job -Id $($fileTrackerJob.Id); Remove-Job -Id $($fileTrackerJob.Id)" -Component "Start"

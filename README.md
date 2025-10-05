@@ -5,7 +5,7 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.0+-blue.svg)](https://github.com/PowerShell/PowerShell)
 [![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg)](https://dotnet.microsoft.com/)
 
-A production-ready, comprehensive RAG (Retrieval-Augmented Generation) system that integrates with Ollama for intelligent document processing, vector storage, and semantic search. Built with PowerShell and .NET, featuring automated file tracking, REST APIs, and AI assistant integration through the Model Context Protocol.
+A comprehensive RAG (Retrieval-Augmented Generation) system that integrates with Ollama for document processing, vector storage, and semantic search. Built with PowerShell and .NET, featuring automated file tracking, REST APIs, and AI assistant integration through the Model Context Protocol.
 
 ## ✨ Key Features
 
@@ -99,7 +99,7 @@ ollama pull mxbai-embed-large:latest
 .\RAG\Start-RAG.ps1
 
 # 6. Verify installation (in a new terminal)
-Invoke-RestMethod -Uri "http://localhost:10001/api/health"
+Invoke-RestMethod -Uri "http://localhost:10001/health"
 Invoke-RestMethod -Uri "http://localhost:10003/api/collections"
 ```
 
@@ -1080,14 +1080,6 @@ Comprehensive documentation is available:
 - [ ] Support for more file types
 - [ ] Performance optimizations
 - [ ] Authentication and authorization
-- [ ] Docker containerization
-
-### Future Plans (v2.0)
-- [ ] Distributed processing
-- [ ] Multi-language support
-- [ ] Advanced analytics dashboard
-- [ ] Plugin system for extensions
-- [ ] Cloud deployment templates
 
 ## 💬 Community & Support
 

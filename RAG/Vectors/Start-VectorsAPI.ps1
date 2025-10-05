@@ -408,7 +408,8 @@ try {
                     "/documents - DELETE: Remove a document from vectors (use filePath and optional collectionName in body)",
                     "/api/search/chunks - POST: Search for relevant chunks (supports collectionName parameter)",
                     "/api/search/documents - POST: Search for relevant documents (supports collectionName parameter)",
-                    "/status - GET: Get server status"
+                    "/status - GET: Get server status",
+                    "/health - GET: Get server health"
                 )
                 defaultCollectionName = $using:DefaultCollectionName
             }
@@ -484,6 +485,11 @@ try {
                  Write-Log "Error in DELETE /documents: $_" -Level "ERROR"  
                  Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
+        }
+
+        # GET /health
+        Add-PodeRoute -Method Get -Path "/health" -ScriptBlock {
+            Write-PodeJsonResponse -Value @{ status = "OK" } -StatusCode 200
         }
 
         # POST /api/search/chunks

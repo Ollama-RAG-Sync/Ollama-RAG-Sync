@@ -145,7 +145,7 @@ Write-LogInfo -Message "- File tracker database: $fileTrackerDbPath" -Component 
 Write-LogInfo -Message "- Vector database: $vectorDbPath" -Component "Setup"
 Write-LogInfo -Message "- Embedding model: $EmbeddingModel" -Component "Setup"
 Write-LogInfo -Message "- Ollama URL: $OllamaUrl" -Component "Setup"
-Write-LogInfo -Message "" -Component "Setup"
+Write-LogInfo -Message "==" -Component "Setup"
 Write-LogInfo -Message "Next Steps:" -Component "Setup"
 Write-LogInfo -Message "1. Start the RAG system: .\Start-RAG.ps1" -Component "Setup"
 Write-LogInfo -Message "2. Add a collection: .\FileTracker\Add-Folder.ps1 -CollectionName 'MyDocs' -FolderPath 'C:\Documents'" -Component "Setup"
