@@ -48,7 +48,7 @@ Monitors file collections and tracks changes using SQLite database.
 
 - **Port**: 10003 (configurable via `OLLAMA_RAG_FILE_TRACKER_API_PORT`)
 - **Database**: SQLite-based file tracking
-- **Features**: File watching, collection management, change detection
+- **Features**: File watching, collection management, change detection, real-time file watchers
 
 ### 2. Processor (`RAG/Processor/`)
 
@@ -1606,6 +1606,78 @@ Ollama-RAG-Sync/
 
 ## 🔧 Advanced Usage
 
+### Real-Time File Watchers (NEW!)
+
+The system now includes automatic file change detection that monitors collections in real-time. When files are created, modified, deleted, or renamed, they are automatically marked as dirty for processing.
+
+#### Quick Start
+
+**Start watching a single collection:**
+```powershell
+.\RAG\FileTracker\Start-CollectionWatcher.ps1 -CollectionName "Documents"
+```
+
+**Start watching all collections:**
+```powershell
+.\RAG\FileTracker\Start-AllWatchers.ps1
+```
+
+**View watcher status:**
+```powershell
+.\RAG\FileTracker\Get-FileTrackerStatus.ps1
+```
+
+**Stop a watcher:**
+```powershell
+.\RAG\FileTracker\Stop-CollectionWatcher.ps1 -CollectionName "Documents"
+```
+
+**Stop all watchers:**
+```powershell
+.\RAG\FileTracker\Stop-AllWatchers.ps1
+```
+
+#### Features
+
+- ✅ **Real-time monitoring** - Instant detection of file changes
+- ✅ **Per-collection watchers** - Independent monitoring for each collection
+- ✅ **Automatic dirty marking** - Changed files queued for processing
+- ✅ **Respects filters** - Honors include/exclude settings from collection config
+- ✅ **Background jobs** - Runs as PowerShell background jobs
+- ✅ **Low overhead** - Minimal system resource usage
+
+#### Watcher Events
+
+| Event | Action |
+|-------|--------|
+| **File Created** | Added to collection, marked as dirty |
+| **File Modified** | Marked as dirty for reprocessing |
+| **File Deleted** | Marked as deleted in database |
+| **File Renamed** | Old file marked deleted, new file added |
+
+#### Complete Workflow Example
+
+```powershell
+# 1. Create a collection
+.\RAG\FileTracker\Add-Folder.ps1 -CollectionName "MyDocs" -FolderPath "C:\Documents"
+
+# 2. Start watching for changes
+.\RAG\FileTracker\Start-CollectionWatcher.ps1 -CollectionName "MyDocs"
+
+# 3. Make changes to files in C:\Documents (watcher detects automatically)
+
+# 4. Process dirty files
+.\RAG\Processor\Process-Collection.ps1 -CollectionName "MyDocs"
+
+# 5. Search processed documents
+.\RAG\Search\Get-BestDocuments.ps1 -Query "your query" -CollectionName "MyDocs"
+
+# 6. Stop watcher when done
+.\RAG\FileTracker\Stop-CollectionWatcher.ps1 -CollectionName "MyDocs"
+```
+
+For complete documentation, see **[docs/FILE_WATCHER.md](docs/FILE_WATCHER.md)**.
+
 ### Search Operations
 
 The system provides two powerful search scripts for finding relevant content:
@@ -2084,6 +2156,7 @@ Comprehensive documentation is available:
 
 - **[Cross-Platform Setup Guide](docs/CROSS_PLATFORM_SETUP.md)** - Installation and configuration for Windows, Linux, and macOS
 - **[Architecture Overview](docs/ARCHITECTURE.md)** - System design and structure
+- **[File Watcher Guide](docs/FILE_WATCHER.md)** - Real-time file change monitoring *(NEW!)*
 - **[Testing Guide](docs/TESTING.md)** - Complete testing documentation
 - **[Contributing Guide](docs/CONTRIBUTING.md)** - How to contribute
 - **[Multi-Collection Storage](docs/MULTI_COLLECTION_STORAGE.md)** - Collection management guide
