@@ -721,37 +721,673 @@ Invoke-RestMethod -Uri "http://localhost:10003/api/collections"
 
 ## 🔌 API Endpoints
 
+The system provides two REST APIs for comprehensive document and vector management.
+
 ### FileTracker API (Port 10003)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/collections` | List all collections |
-| `POST` | `/api/collections` | Create new collection |
-| `GET` | `/api/collections/{name}/files` | Get files in collection |
-| `PUT` | `/api/files/{id}/status` | Update file status |
+File tracking, collection management, and file monitoring operations.
+
+**Base URL**: `http://localhost:10003`
+
+#### Collections
+
+<details>
+<summary><b>GET /api/collections</b> - List all collections</summary>
+
+**Response:**
+```json
+{
+  "success": true,
+  "collections": [
+    {
+      "id": 1,
+      "name": "TechDocs",
+      "description": "Technical documentation",
+      "source_folder": "C:\\Documents\\Tech",
+      "include_extensions": ".txt,.md,.pdf",
+      "exclude_folders": "node_modules,vendor",
+      "created_at": "2025-10-01T10:00:00Z",
+      "updated_at": "2025-10-05T15:30:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+</details>
+
+<details>
+<summary><b>POST /api/collections</b> - Create a new collection</summary>
+
+**Request Body:**
+```json
+{
+  "name": "TechDocs",
+  "sourceFolder": "C:\\Documents\\Tech",
+  "description": "Technical documentation",
+  "includeExtensions": ".txt,.md,.pdf",
+  "excludeFolders": "node_modules,vendor"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Collection created successfully",
+  "collection": {
+    "id": 1,
+    "name": "TechDocs",
+    "source_folder": "C:\\Documents\\Tech"
+  }
+}
+```
+</details>
+
+<details>
+<summary><b>GET /api/collections/{id}</b> - Get collection by ID</summary>
+
+**Response:**
+```json
+{
+  "success": true,
+  "collection": {
+    "id": 1,
+    "name": "TechDocs",
+    "description": "Technical documentation",
+    "source_folder": "C:\\Documents\\Tech",
+    "include_extensions": ".txt,.md,.pdf",
+    "exclude_folders": "node_modules,vendor"
+  }
+}
+```
+</details>
+
+<details>
+<summary><b>PUT /api/collections/{id}</b> - Update collection</summary>
+
+**Request Body:**
+```json
+{
+  "name": "UpdatedName",
+  "description": "Updated description",
+  "includeExtensions": ".txt,.md,.pdf,.docx"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Collection updated successfully",
+  "collection": { /* updated collection object */ }
+}
+```
+</details>
+
+<details>
+<summary><b>DELETE /api/collections/{id}</b> - Delete collection</summary>
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Collection deleted successfully"
+}
+```
+</details>
+
+<details>
+<summary><b>GET /api/collections/{id}/settings</b> - Get collection settings</summary>
+
+**Response:**
+```json
+{
+  "success": true,
+  "collection": { /* collection object */ },
+  "settings": {
+    "isWatching": true,
+    "watchJobId": 42
+  }
+}
+```
+</details>
+
+<details>
+<summary><b>POST /api/collections/{id}/watch</b> - Start/stop file watching</summary>
+
+**Request Body (Start):**
+```json
+{
+  "action": "start",
+  "watchCreated": true,
+  "watchModified": true,
+  "watchDeleted": false,
+  "watchRenamed": true,
+  "includeSubdirectories": true,
+  "processInterval": 15,
+  "omitFolders": ["temp", "cache"],
+  "fileFilter": "*.txt"
+}
+```
+
+**Request Body (Stop):**
+```json
+{
+  "action": "stop"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "File watching started",
+  "collection_id": 1,
+  "job_id": 42,
+  "parameters": { /* watch parameters */ }
+}
+```
+</details>
+
+#### Files
+
+<details>
+<summary><b>GET /api/collections/{id}/files</b> - Get files in collection</summary>
+
+**Query Parameters:**
+- `dirty` (boolean): Return only dirty/unprocessed files
+- `processed` (boolean): Return only processed files
+- `deleted` (boolean): Return only deleted files
+
+**Example:** `GET /api/collections/1/files?dirty=true`
+
+**Response:**
+```json
+{
+  "success": true,
+  "files": [
+    {
+      "id": 1,
+      "collection_id": 1,
+      "FilePath": "C:\\Documents\\Tech\\guide.txt",
+      "FileHash": "abc123...",
+      "LastModified": "2025-10-05T10:00:00Z",
+      "Dirty": true,
+      "Deleted": false,
+      "created_at": "2025-10-01T08:00:00Z",
+      "updated_at": "2025-10-05T10:00:00Z"
+    }
+  ],
+  "count": 1,
+  "collection_id": 1
+}
+```
+</details>
+
+<details>
+<summary><b>POST /api/collections/{id}/files</b> - Add file to collection</summary>
+
+**Request Body:**
+```json
+{
+  "filePath": "C:\\Documents\\Tech\\guide.txt",
+  "originalUrl": "https://example.com/guide.txt",
+  "dirty": true
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "File added",
+  "file": {
+    "id": 1,
+    "FilePath": "C:\\Documents\\Tech\\guide.txt",
+    "updated": false
+  }
+}
+```
+</details>
+
+<details>
+<summary><b>PUT /api/collections/{id}/files</b> - Update all files in collection</summary>
+
+**Request Body:**
+```json
+{
+  "dirty": false
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "All files in collection 1 status updated",
+  "dirty": false
+}
+```
+</details>
+
+<details>
+<summary><b>PUT /api/collections/{id}/files/{fileId}</b> - Update specific file status</summary>
+
+**Request Body:**
+```json
+{
+  "dirty": false
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "File status updated",
+  "file_id": 1,
+  "file_path": "C:\\Documents\\Tech\\guide.txt",
+  "collection_id": 1,
+  "dirty": false
+}
+```
+</details>
+
+<details>
+<summary><b>DELETE /api/collections/{id}/files/{fileId}</b> - Remove file from collection</summary>
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "File (ID: 1) removed from collection (ID: 1)"
+}
+```
+</details>
+
+<details>
+<summary><b>GET /api/files/{fileId}/metadata</b> - Get file metadata</summary>
+
+**Response:**
+```json
+{
+  "success": true,
+  "file_id": 1,
+  "collection_id": 1,
+  "collection_name": "TechDocs",
+  "file_path": "C:\\Documents\\Tech\\guide.txt"
+}
+```
+</details>
+
+#### System
+
+<details>
+<summary><b>GET /health</b> - Health check</summary>
+
+**Response:**
+```json
+{
+  "status": "OK"
+}
+```
+</details>
+
+<details>
+<summary><b>GET /status</b> - System status</summary>
+
+**Response:**
+```json
+{
+  "success": true,
+  "status": {
+    "collections_count": 5,
+    "total_files": 150,
+    "dirty_files": 10
+  }
+}
+```
+</details>
+
+---
 
 ### Vectors API (Port 10001)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/documents` | Add document to vector database |
-| `DELETE` | `/api/documents/{id}` | Remove document |
-| `POST` | `/api/search/documents` | Search documents by query (supports reranking) |
-| `POST` | `/api/search/chunks` | Search text chunks (supports reranking) |
+Vector database operations, document embedding, and semantic search.
 
-**Reranking Support:**  
-Both search endpoints support optional LLM-based reranking for improved relevance:
+**Base URL**: `http://localhost:10001`
+
+#### Documents
+
+<details>
+<summary><b>POST /documents</b> - Add document to vector database</summary>
+
+**Request Body:**
+```json
+{
+  "filePath": "C:\\Documents\\Tech\\guide.txt",
+  "originalFilePath": "C:\\Original\\guide.txt",
+  "fileId": 1,
+  "chunkSize": 20,
+  "chunkOverlap": 2,
+  "maxWorkers": 5,
+  "contentType": "Text",
+  "collectionName": "TechDocs"
+}
+```
+
+**Parameters:**
+- `filePath` (required): Path to the document to add
+- `originalFilePath` (optional): Original source file path
+- `fileId` (optional): File ID from FileTracker (default: 0)
+- `chunkSize` (optional): Number of lines per chunk (default: 20)
+- `chunkOverlap` (optional): Lines of overlap between chunks (default: 2)
+- `maxWorkers` (optional): Concurrent processing workers (default: 5)
+- `contentType` (optional): Content type (default: "Text")
+- `collectionName` (optional): Target collection (default: "default")
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Document added successfully",
+  "filePath": "C:\\Documents\\Tech\\guide.txt",
+  "fileId": 1,
+  "collectionName": "TechDocs"
+}
+```
+
+**Note:** Documents are automatically stored in both the "default" collection and the specified `collectionName` collection for flexible retrieval.
+</details>
+
+<details>
+<summary><b>DELETE /documents</b> - Remove document from vector database</summary>
+
+**Request Body:**
+```json
+{
+  "filePath": "C:\\Documents\\Tech\\guide.txt",
+  "fileId": 1,
+  "collectionName": "TechDocs"
+}
+```
+
+**Parameters:**
+- `filePath` (required): Path to the document to remove
+- `fileId` (optional): File ID for logging (default: 0)
+- `collectionName` (optional): Collection name (default: "default")
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Document removed successfully",
+  "filePath": "C:\\Documents\\Tech\\guide.txt",
+  "fileId": 1,
+  "collectionName": "TechDocs"
+}
+```
+</details>
+
+#### Search
+
+<details>
+<summary><b>POST /api/search/documents</b> - Search documents by query</summary>
+
+**Request Body:**
+```json
+{
+  "query": "machine learning algorithms",
+  "max_results": 10,
+  "threshold": 0.6,
+  "return_content": true,
+  "collectionName": "TechDocs",
+  "filter": {}
+}
+```
+
+**Parameters:**
+- `query` (required): Search query text
+- `max_results` (optional): Maximum results to return (default: 10)
+- `threshold` (optional): Minimum similarity score 0.0-1.0 (default: 0.5)
+- `return_content` (optional): Include document content (default: false)
+- `collectionName` (optional): Target collection (default: "default")
+- `filter` (optional): Additional metadata filters (default: {})
+
+**Response:**
+```json
+{
+  "success": true,
+  "results": [
+    {
+      "document_id": "doc_123",
+      "document_name": "ml_guide.txt",
+      "similarity": 0.87,
+      "content": "Machine learning is...",
+      "metadata": {
+        "collection": "TechDocs",
+        "created_at": "2025-10-01T10:00:00Z"
+      }
+    }
+  ],
+  "count": 1,
+  "query": "machine learning algorithms",
+  "collectionName": "TechDocs"
+}
+```
+</details>
+
+<details>
+<summary><b>POST /api/search/chunks</b> - Search text chunks by query</summary>
+
+**Request Body:**
+```json
+{
+  "query": "neural network architecture",
+  "max_results": 10,
+  "threshold": 0.6,
+  "aggregateByDocument": false,
+  "collectionName": "TechDocs",
+  "filter": {}
+}
+```
+
+**Parameters:**
+- `query` (required): Search query text
+- `max_results` (optional): Maximum results to return (default: 10)
+- `threshold` (optional): Minimum similarity score 0.0-1.0 (default: 0.0)
+- `aggregateByDocument` (optional): Group chunks by document (default: false)
+- `collectionName` (optional): Target collection (default: "default")
+- `filter` (optional): Additional metadata filters (default: {})
+
+**Response:**
+```json
+{
+  "success": true,
+  "results": [
+    {
+      "chunk_id": "chunk_456",
+      "document_id": "doc_123",
+      "document_name": "ml_guide.txt",
+      "chunk_index": 5,
+      "content": "Neural networks consist of layers...",
+      "similarity": 0.92,
+      "metadata": {
+        "collection": "TechDocs",
+        "start_line": 100,
+        "end_line": 120
+      }
+    }
+  ],
+  "count": 1,
+  "query": "neural network architecture",
+  "collectionName": "TechDocs"
+}
+```
+</details>
+
+#### System
+
+<details>
+<summary><b>GET /health</b> - Health check</summary>
+
+**Response:**
+```json
+{
+  "status": "OK"
+}
+```
+</details>
+
+<details>
+<summary><b>GET /status</b> - Server status and configuration</summary>
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "chromaDbPath": "C:\\OllamaRAG\\Chroma.db",
+  "ollamaUrl": "http://localhost:11434",
+  "embeddingModel": "mxbai-embed-large:latest",
+  "defaultChunkSize": 20,
+  "defaultChunkOverlap": 2,
+  "defaultMaxWorkers": 5,
+  "defaultCollectionName": "default"
+}
+```
+</details>
+
+---
+
+### Complete API Examples
+
+#### Example 1: Complete Document Workflow
+
+```powershell
+# 1. Create a collection
+$collection = @{
+    name = "MyDocs"
+    sourceFolder = "C:\Documents"
+    description = "My document collection"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:10003/api/collections" `
+    -Method Post -Body $collection -ContentType "application/json"
+
+# 2. Add a file to the collection
+$file = @{
+    filePath = "C:\Documents\guide.txt"
+    dirty = $true
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:10003/api/collections/1/files" `
+    -Method Post -Body $file -ContentType "application/json"
+
+# 3. Add document to vectors
+$doc = @{
+    filePath = "C:\Documents\guide.txt"
+    collectionName = "MyDocs"
+    chunkSize = 20
+    maxWorkers = 5
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:10001/documents" `
+    -Method Post -Body $doc -ContentType "application/json"
+
+# 4. Search documents
+$search = @{
+    query = "API documentation"
+    collectionName = "MyDocs"
+    max_results = 5
+    threshold = 0.7
+} | ConvertTo-Json
+
+$results = Invoke-RestMethod -Uri "http://localhost:10001/api/search/documents" `
+    -Method Post -Body $search -ContentType "application/json"
+
+$results.results | Format-Table
+```
+
+#### Example 2: File Watching Automation
+
+```powershell
+# Start watching a collection
+$watch = @{
+    action = "start"
+    watchCreated = $true
+    watchModified = $true
+    includeSubdirectories = $true
+    processInterval = 15
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:10003/api/collections/1/watch" `
+    -Method Post -Body $watch -ContentType "application/json"
+
+# Get watch status
+$settings = Invoke-RestMethod -Uri "http://localhost:10003/api/collections/1/settings"
+Write-Host "Watching: $($settings.settings.isWatching)"
+
+# Stop watching
+$stopWatch = @{ action = "stop" } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:10003/api/collections/1/watch" `
+    -Method Post -Body $stopWatch -ContentType "application/json"
+```
+
+#### Example 3: Chunk-Level Search
+
+```powershell
+# Search for specific chunks with aggregation
+$chunkSearch = @{
+    query = "error handling patterns"
+    collectionName = "CodeDocs"
+    max_results = 15
+    threshold = 0.75
+    aggregateByDocument = $true
+} | ConvertTo-Json
+
+$chunks = Invoke-RestMethod -Uri "http://localhost:10001/api/search/chunks" `
+    -Method Post -Body $chunkSearch -ContentType "application/json"
+
+# Display results grouped by document
+$chunks.results | Group-Object document_name | ForEach-Object {
+    Write-Host "`n=== $($_.Name) ==="
+    $_.Group | ForEach-Object {
+        Write-Host "Chunk $($_.chunk_index): Similarity $($_.similarity)"
+        Write-Host $_.content.Substring(0, [Math]::Min(150, $_.content.Length))
+        Write-Host ""
+    }
+}
+```
+
+---
+
+### Error Handling
+
+All API endpoints return consistent error responses:
 
 ```json
 {
-  "query": "search query",
-  "collection_name": "MyCollection",
-  "max_results": 5,
-  "enable_reranking": true,
-  "rerank_top_k": 15,
-  "rerank_model": "llama3"
+  "success": false,
+  "error": "Error message description"
 }
 ```
+
+**Common HTTP Status Codes:**
+- `200 OK` - Request successful
+- `201 Created` - Resource created successfully
+- `400 Bad Request` - Invalid request parameters
+- `404 Not Found` - Resource not found
+- `409 Conflict` - Resource conflict (e.g., already exists)
+- `500 Internal Server Error` - Server error
+
+### API Authentication
+
+⚠️ **Security Note:** The current implementation does not include authentication. For production use, implement:
+- API key authentication
+- Rate limiting
+- HTTPS/TLS encryption
+- IP whitelisting
+- Request validation
 
 ## 🤖 MCP Integration
 
