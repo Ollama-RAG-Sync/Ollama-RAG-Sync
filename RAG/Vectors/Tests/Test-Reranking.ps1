@@ -9,7 +9,7 @@ param(
     [string]$OllamaUrl = "http://localhost:11434",
     
     [Parameter(Mandatory=$false)]
-    [string]$EmbeddingModel = "mxbai-embed-large:latest",
+    [string]$EmbeddingModel = "embeddinggemma",
     
     [Parameter(Mandatory=$false)]
     [string]$RerankModel = "",

@@ -11,7 +11,7 @@ This document describes the integration of the `MaxWorkers` parameter throughout
 ```powershell
 $script:DefaultConfig = @{
     OllamaUrl = "http://localhost:11434"
-    EmbeddingModel = "mxbai-embed-large:latest"
+    EmbeddingModel = "embeddinggemma"
     ChunkSize = 20
     ChunkOverlap = 2
     MaxWorkers = 5  # NEW: Default concurrent workers
@@ -177,7 +177,7 @@ GET `/health` now includes `defaultMaxWorkers`:
     "status": "ok",
     "chromaDbPath": "C:\\data\\chroma.db",
     "ollamaUrl": "http://localhost:11434",
-    "embeddingModel": "mxbai-embed-large:latest",
+    "embeddingModel": "embeddinggemma",
     "defaultChunkSize": 20,
     "defaultChunkOverlap": 2,
     "defaultMaxWorkers": 5,

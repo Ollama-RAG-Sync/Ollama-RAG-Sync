@@ -70,7 +70,8 @@ function Get-DocumentEmbedding {
             if ($line -match "^SUCCESS:(.*)$") {
                 $successData = $Matches[1]
                 try {
-                    $embedding = $successData | ConvertFrom-Json
+                    # Use -Depth to limit recursion (embeddings are typically 2-3 levels deep)
+                    $embedding = $successData | ConvertFrom-Json -Depth 10
                     Write-VectorsLog -Message "Successfully generated embedding vector" -Level "Info"
                 } catch {
                     Write-VectorsLog -Message "Generated embedding but couldn't parse JSON" -Level "Error"
@@ -202,7 +203,8 @@ function Get-ChunkEmbeddings {
             if ($line -match "^SUCCESS:(.*)$") {
                 $successData = $Matches[1]
                 try {
-                    $chunkEmbeddings = $successData | ConvertFrom-Json
+                    # Use -Depth to limit recursion and -NoEnumerate to preserve arrays
+                    $chunkEmbeddings = $successData | ConvertFrom-Json -Depth 10 -NoEnumerate
                     Write-VectorsLog -Message "Successfully generated embeddings for $($chunkEmbeddings.Count) chunks" -Level "Info"
                 } catch {
                     Write-VectorsLog -Message "Generated embeddings but couldn't parse JSON" -Level "Error"

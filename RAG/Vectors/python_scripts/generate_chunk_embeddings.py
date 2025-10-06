@@ -16,6 +16,67 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
+def validate_parameters(args):
+    """Validate command-line parameters and return error messages if any.
+    
+    Args:
+        args: Parsed command-line arguments
+        
+    Returns:
+        list: List of error messages (empty if all valid)
+    """
+    errors = []
+    
+    # Validate content file
+    if not args.content_file:
+        errors.append("Content file path is required")
+    elif not os.path.exists(args.content_file):
+        errors.append(f"Content file does not exist: {args.content_file}")
+    elif not os.path.isfile(args.content_file):
+        errors.append(f"Content file path is not a file: {args.content_file}")
+    elif os.path.getsize(args.content_file) == 0:
+        errors.append(f"Content file is empty: {args.content_file}")
+    
+    # Validate chunk_size
+    if args.chunk_size <= 0:
+        errors.append(f"chunk-size must be positive, got: {args.chunk_size}")
+    elif args.chunk_size > 10000:
+        errors.append(f"chunk-size is too large (max 10000), got: {args.chunk_size}")
+    
+    # Validate chunk_overlap
+    if args.chunk_overlap < 0:
+        errors.append(f"chunk-overlap cannot be negative, got: {args.chunk_overlap}")
+    elif args.chunk_overlap >= args.chunk_size:
+        errors.append(f"chunk-overlap ({args.chunk_overlap}) must be less than chunk-size ({args.chunk_size})")
+    
+    # Validate max_workers
+    if args.max_workers <= 0:
+        errors.append(f"max-workers must be positive, got: {args.max_workers}")
+    elif args.max_workers > 50:
+        errors.append(f"max-workers is too large (max 50), got: {args.max_workers}")
+    
+    # Validate model name
+    if not args.model or not args.model.strip():
+        errors.append("model name cannot be empty")
+    
+    # Validate base_url
+    if not args.base_url or not args.base_url.strip():
+        errors.append("base-url cannot be empty")
+    elif not (args.base_url.startswith('http://') or args.base_url.startswith('https://')):
+        errors.append(f"base-url must start with http:// or https://, got: {args.base_url}")
+    
+    # Validate log_path if provided
+    if args.log_path:
+        log_dir = os.path.dirname(args.log_path)
+        if log_dir and not os.path.exists(log_dir):
+            try:
+                os.makedirs(log_dir, exist_ok=True)
+            except Exception as e:
+                errors.append(f"Cannot create log directory: {e}")
+    
+    return errors
+
+
 def log_to_file(message, log_path):
     """Log message to file with timestamp"""
     if log_path and log_path != "()":
@@ -91,13 +152,13 @@ def chunk_text(text, chunk_size=20, chunk_overlap=2):
     return chunks
 
 
-def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:11434", log_path=None, timeout=60):
+def get_embedding_from_ollama(text, model="embeddinggemma", base_url="http://localhost:11434", log_path=None, timeout=60):
     """
     Get embeddings from Ollama API
     
     Args:
         text (str): The text to get embeddings for
-        model (str): The model to use (default: "llama3")
+        model (str): The model to use (default: "embeddinggemma")
         base_url (str): The base URL for Ollama API (default: "http://localhost:11434")
         log_path (str): Path to log file (optional)
         timeout (int): Request timeout in seconds (default: 60)
@@ -120,7 +181,8 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
     headers = {
         'Content-Type': 'application/json'
     }
-    
+
+
     # Create request
     req = urllib.request.Request(url, data=data_bytes, headers=headers, method="POST")
     
@@ -200,7 +262,7 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
         }
 
 
-def generate_chunk_embeddings(text, chunk_size, chunk_overlap, model, base_url, log_path=None, max_workers=5):
+def generate_chunk_embeddings(text, chunk_size, chunk_overlap, model, base_url, log_path=None, max_workers=5, include_text=True):
     """
     Generate embeddings for text chunks using parallel processing.
     
@@ -212,6 +274,7 @@ def generate_chunk_embeddings(text, chunk_size, chunk_overlap, model, base_url, 
         base_url (str): The Ollama API base URL
         log_path (str): Optional log file path
         max_workers (int): Maximum number of concurrent workers (default: 5)
+        include_text (bool): Whether to include chunk text in output (default: True)
         
     Returns:
         list: List of chunk embeddings with metadata
@@ -256,15 +319,20 @@ def generate_chunk_embeddings(text, chunk_size, chunk_overlap, model, base_url, 
                     log_to_file(f"ERROR:Failed to get embedding for chunk {i+1}", log_path)
                     return None
                 
-                chunk_embeddings[i] = {
+                chunk_embedding = {
                     'chunk_id': i,
-                    'text': chunk_data["text"],
                     'start_line': chunk_data["start_line"],
                     'end_line': chunk_data["end_line"],
                     'embedding': embedding_result["embedding"],
                     'duration': embedding_result["duration"],
                     'created_at': embedding_result["created_at"]
                 }
+                
+                # Include text only if requested (reduces JSON size significantly)
+                if include_text:
+                    chunk_embedding['text'] = chunk_data["text"]
+                
+                chunk_embeddings[i] = chunk_embedding
                 
                 log_to_file(f"INFO:Chunk {completed_count} / {len(chunks)} embeddings created", log_path)
                 
@@ -298,8 +366,8 @@ def main():
     )
     parser.add_argument(
         "--model",
-        default="llama3",
-        help="Embedding model to use (default: llama3)"
+        default="embeddinggemma",
+        help="Embedding model to use (default: embeddinggemma)"
     )
     parser.add_argument(
         "--base-url",
@@ -316,13 +384,38 @@ def main():
         default=5,
         help="Maximum number of concurrent workers for parallel processing (default: 5)"
     )
+    parser.add_argument(
+        "--exclude-text",
+        action="store_true",
+        help="Exclude chunk text from output to reduce JSON size (default: include text)"
+    )
     
     args = parser.parse_args()
+    
+    # Validate parameters
+    validation_errors = validate_parameters(args)
+    if validation_errors:
+        print("ERROR:Parameter validation failed:", file=sys.stderr)
+        for error in validation_errors:
+            print(f"  - {error}", file=sys.stderr)
+        sys.exit(1)
     
     # Read the document content from file
     try:
         with open(args.content_file, 'r', encoding='utf-8') as file:
             text = file.read()
+        
+        # Validate that file has content after reading
+        if not text or not text.strip():
+            print(f"ERROR:File contains no readable text: {args.content_file}", file=sys.stderr)
+            sys.exit(1)
+            
+    except UnicodeDecodeError as e:
+        print(f"ERROR:File encoding error (not valid UTF-8): {args.content_file} - {e}", file=sys.stderr)
+        sys.exit(1)
+    except PermissionError as e:
+        print(f"ERROR:Permission denied reading file: {args.content_file} - {e}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
         print(f"ERROR:Failed to read content file: {e}", file=sys.stderr)
         sys.exit(1)
@@ -335,14 +428,17 @@ def main():
         model=args.model,
         base_url=args.base_url,
         log_path=args.log_path,
-        max_workers=args.max_workers
+        max_workers=args.max_workers,
+        include_text=not args.exclude_text
     )
     
     if result is None:
+        print(f"FAILED:Could not generate embedding", file=sys.stderr)    
         sys.exit(1)
     
-    # Return as JSON
-    print(f"SUCCESS:{json.dumps(result)}")
+    # Return as JSON with compact serialization for better performance
+    # Use separators to minimize whitespace, ensure_ascii=False for better Unicode handling
+    print(f"SUCCESS:{json.dumps(result, separators=(',', ':'), ensure_ascii=False)}")
     sys.exit(0)
 
 

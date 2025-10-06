@@ -11,7 +11,7 @@ $script:ModuleVersion = "1.0.0"
 # Default configuration
 $script:DefaultConfig = @{
     OllamaUrl = "http://localhost:11434"
-    EmbeddingModel = "mxbai-embed-large:latest"
+    EmbeddingModel = "embeddinggemma"
     ChunkSize = 20  # Number of lines per chunk
     ChunkOverlap = 2  # Number of lines to overlap between chunks
     MaxWorkers = 5  # Number of concurrent workers for parallel processing

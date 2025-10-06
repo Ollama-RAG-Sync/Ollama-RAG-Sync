@@ -15,6 +15,49 @@ import os
 import argparse
 
 
+def validate_parameters(args):
+    """Validate command-line parameters and return error messages if any.
+    
+    Args:
+        args: Parsed command-line arguments
+        
+    Returns:
+        list: List of error messages (empty if all valid)
+    """
+    errors = []
+    
+    # Validate content file
+    if not args.content_file:
+        errors.append("Content file path is required")
+    elif not os.path.exists(args.content_file):
+        errors.append(f"Content file does not exist: {args.content_file}")
+    elif not os.path.isfile(args.content_file):
+        errors.append(f"Content file path is not a file: {args.content_file}")
+    elif os.path.getsize(args.content_file) == 0:
+        errors.append(f"Content file is empty: {args.content_file}")
+    
+    # Validate model name
+    if not args.model or not args.model.strip():
+        errors.append("model name cannot be empty")
+    
+    # Validate base_url
+    if not args.base_url or not args.base_url.strip():
+        errors.append("base-url cannot be empty")
+    elif not (args.base_url.startswith('http://') or args.base_url.startswith('https://')):
+        errors.append(f"base-url must start with http:// or https://, got: {args.base_url}")
+    
+    # Validate log_path if provided
+    if args.log_path:
+        log_dir = os.path.dirname(args.log_path)
+        if log_dir and not os.path.exists(log_dir):
+            try:
+                os.makedirs(log_dir, exist_ok=True)
+            except Exception as e:
+                errors.append(f"Cannot create log directory: {e}")
+    
+    return errors
+
+
 def log_to_file(message, log_path):
     """Log message to file with timestamp"""
     if log_path and log_path != "()":
@@ -60,7 +103,8 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
     headers = {
         'Content-Type': 'application/json'
     }
-    
+
+
     # Create request
     req = urllib.request.Request(url, data=data_bytes, headers=headers, method="POST")
     
@@ -78,6 +122,7 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
             # Parse JSON response
             try:
                 response_data = json.loads(response_text)
+
             except json.JSONDecodeError:
                 log_to_file(f"ERROR:Failed to parse JSON response: {response_text}", log_path)
                 return {"embedding": None, "duration": duration, "created_at": datetime.datetime.now().isoformat()}
@@ -105,6 +150,7 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
             if embedding is None:
                 log_to_file(f"ERROR:Could not identify embedding format in response: {response_data}", log_path)
             
+        
             return {
                 "embedding": embedding, 
                 "duration": duration, 
@@ -112,6 +158,7 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
             }
 
     except urllib.error.HTTPError as e:
+        raise ValueError(model)
         end_time = time.time()
         duration = end_time - start_time
         log_to_file(f"ERROR:HTTP error {e.code} connecting to Ollama: {e.reason}", log_path)
@@ -140,7 +187,7 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
         }
 
 
-def generate_document_embedding(text, model, base_url, log_path=None):
+def generate_document_embedding(text, model, base_url, log_path=None, include_text=True):
     """
     Generate embedding for a document.
     
@@ -149,9 +196,10 @@ def generate_document_embedding(text, model, base_url, log_path=None):
         model (str): The embedding model to use
         base_url (str): The Ollama API base URL
         log_path (str): Optional log file path
+        include_text (bool): Whether to include document text in output (default: True)
         
     Returns:
-        dict: Result with text, embedding, duration, and created_at
+        dict: Result with embedding, duration, and created_at (optionally text)
     """
     # Skip empty input
     if not text or not text.strip():
@@ -171,11 +219,14 @@ def generate_document_embedding(text, model, base_url, log_path=None):
         return None
     
     result = {
-        "text": text,
         "embedding": embedding_data["embedding"],
         "duration": embedding_data["duration"],
         "created_at": embedding_data["created_at"]
     }
+    
+    # Include text only if requested (reduces JSON size)
+    if include_text:
+        result["text"] = text
     
     return result
 
@@ -191,8 +242,8 @@ def main():
     )
     parser.add_argument(
         "--model",
-        default="llama3",
-        help="Embedding model to use (default: llama3)"
+        default="embeddinggemma",
+        help="Embedding model to use (default: embeddinggemma)"
     )
     parser.add_argument(
         "--base-url",
@@ -203,13 +254,38 @@ def main():
         "--log-path",
         help="Path to log file"
     )
+    parser.add_argument(
+        "--exclude-text",
+        action="store_true",
+        help="Exclude document text from output to reduce JSON size (default: include text)"
+    )
     
     args = parser.parse_args()
+    
+    # Validate parameters
+    validation_errors = validate_parameters(args)
+    if validation_errors:
+        print("ERROR:Parameter validation failed:", file=sys.stderr)
+        for error in validation_errors:
+            print(f"  - {error}", file=sys.stderr)
+        sys.exit(1)
     
     # Read the document content from file
     try:
         with open(args.content_file, 'r', encoding='utf-8') as file:
             text = file.read()
+        
+        # Validate that file has content after reading
+        if not text or not text.strip():
+            print(f"ERROR:File contains no readable text: {args.content_file}", file=sys.stderr)
+            sys.exit(1)
+            
+    except UnicodeDecodeError as e:
+        print(f"ERROR:File encoding error (not valid UTF-8): {args.content_file} - {e}", file=sys.stderr)
+        sys.exit(1)
+    except PermissionError as e:
+        print(f"ERROR:Permission denied reading file: {args.content_file} - {e}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
         print(f"ERROR:Failed to read content file: {e}", file=sys.stderr)
         sys.exit(1)
@@ -219,14 +295,17 @@ def main():
         text=text,
         model=args.model,
         base_url=args.base_url,
-        log_path=args.log_path
+        log_path=args.log_path,
+        include_text=not args.exclude_text
     )
     
     if result is None:
+        print(f"FAILED:Could not generate embedding", file=sys.stderr)    
         sys.exit(1)
     
-    # Return embedding as JSON
-    print(f"SUCCESS:{json.dumps(result)}")
+    # Return embedding as JSON with compact serialization for better performance
+    # Use separators to minimize whitespace, ensure_ascii=False for better Unicode handling
+    print(f"SUCCESS:{json.dumps(result, separators=(',', ':'), ensure_ascii=False)}")
     sys.exit(0)
 
 
