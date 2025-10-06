@@ -112,8 +112,12 @@ function Get-DocumentEmbedding {
     Number of lines per chunk
 .PARAMETER ChunkOverlap
     Number of lines to overlap between chunks
+.PARAMETER MaxWorkers
+    Number of concurrent workers for parallel processing (default: 5)
 .EXAMPLE
     Get-ChunkEmbeddings -FilePath "path/to/document.md" -ChunkSize 20 -ChunkOverlap 2
+.EXAMPLE
+    Get-ChunkEmbeddings -FilePath "path/to/document.md" -MaxWorkers 10
 #>
 function Get-ChunkEmbeddings {
     [CmdletBinding()]
@@ -128,7 +132,10 @@ function Get-ChunkEmbeddings {
         [int]$ChunkSize = 0,
         
         [Parameter(Mandatory=$false)]
-        [int]$ChunkOverlap = 0
+        [int]$ChunkOverlap = 0,
+        
+        [Parameter(Mandatory=$false)]
+        [int]$MaxWorkers = 0
     )
     
     $config = Get-VectorsConfig
@@ -140,6 +147,10 @@ function Get-ChunkEmbeddings {
     
     if ($ChunkOverlap -le 0) {
         $ChunkOverlap = $config.ChunkOverlap
+    }
+    
+    if ($MaxWorkers -le 0) {
+        $MaxWorkers = $config.MaxWorkers
     }
     
     if ($PSCmdlet.ParameterSetName -eq "ByPath") {
@@ -183,7 +194,7 @@ function Get-ChunkEmbeddings {
     
     # Execute the Python script
     try {
-        $results = python $pythonScriptPath $contentScript --chunk-size $ChunkSize --chunk-overlap $ChunkOverlap --model $($config.EmbeddingModel) --base-url $($config.OllamaUrl) --log-path $Env:vectorLogFilePath 2>&1
+        $results = python $pythonScriptPath $contentScript --chunk-size $ChunkSize --chunk-overlap $ChunkOverlap --max-workers $MaxWorkers --model $($config.EmbeddingModel) --base-url $($config.OllamaUrl) --log-path $Env:vectorLogFilePath 2>&1
         
         # Process the output
         $chunkEmbeddings = $null
@@ -237,8 +248,12 @@ function Get-ChunkEmbeddings {
     Number of lines per chunk
 .PARAMETER ChunkOverlap
     Number of lines to overlap between chunks
+.PARAMETER MaxWorkers
+    Number of concurrent workers for parallel processing (default: 5)
 .EXAMPLE
     Add-DocumentToVectorStore -FilePath "path/to/document.md"
+.EXAMPLE
+    Add-DocumentToVectorStore -FilePath "path/to/document.md" -MaxWorkers 10
 #>
 function Add-DocumentToVectorStore {
     [CmdletBinding()]
@@ -259,6 +274,9 @@ function Add-DocumentToVectorStore {
         [int]$ChunkOverlap = 2,
         
         [Parameter(Mandatory=$false)]
+        [int]$MaxWorkers = 0,
+        
+        [Parameter(Mandatory=$false)]
         [string]$CollectionName = "default"
     )
     
@@ -273,6 +291,10 @@ function Add-DocumentToVectorStore {
     
     if ($ChunkOverlap -le 0) {
         $ChunkOverlap = $config.ChunkOverlap
+    }
+    
+    if ($MaxWorkers -le 0) {
+        $MaxWorkers = $config.MaxWorkers
     }
     
     # Read content from file if using path
@@ -314,7 +336,7 @@ function Add-DocumentToVectorStore {
     
     # Get chunk embeddings
     Write-VectorsLog -Message "Generating chunk embeddings..." -Level "Info"
-    $chunkEmbeddings = Get-ChunkEmbeddings -Content $documentContent -ChunkSize $ChunkSize -ChunkOverlap $ChunkOverlap
+    $chunkEmbeddings = Get-ChunkEmbeddings -Content $documentContent -ChunkSize $ChunkSize -ChunkOverlap $ChunkOverlap -MaxWorkers $MaxWorkers
     if ($null -eq $chunkEmbeddings) {
         Write-VectorsLog -Message "Failed to generate chunk embeddings" -Level "Error"
         return $false

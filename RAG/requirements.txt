@@ -14,3 +14,6 @@ chromadb>=0.4.0
 
 # Core Dependencies
 markdown>=3.4.0
+
+# Note: concurrent.futures is part of Python's standard library (3.2+)
+# No additional installation required for parallel processing functionality

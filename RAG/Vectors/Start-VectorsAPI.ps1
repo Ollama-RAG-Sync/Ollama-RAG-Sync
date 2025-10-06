@@ -25,6 +25,9 @@ param (
     [int]$DefaultChunkOverlap = 2,  # Number of lines to overlap between chunks
     
     [Parameter(Mandatory=$false)]
+    [int]$DefaultMaxWorkers = 5,  # Number of concurrent workers for parallel processing
+    
+    [Parameter(Mandatory=$false)]
     [string]$DefaultCollectionName = "default",  # Default collection name
     
     [Parameter(Mandatory=$false)]
@@ -121,6 +124,9 @@ function Add-Document {
         [int]$ChunkOverlap = $using:DefaultChunkOverlap, # Use script-level default
         
         [Parameter(Mandatory=$false)]
+        [int]$MaxWorkers = $using:DefaultMaxWorkers, # Use script-level default
+        
+        [Parameter(Mandatory=$false)]
         [string]$ContentType = "Text",
         
         [Parameter(Mandatory=$false)]
@@ -141,11 +147,17 @@ function Add-Document {
         # Add optional parameters if provided and different from default
         #if ($ChunkSize -ne $using:DefaultChunkSize) { $params.ChunkSize = $ChunkSize }
         #if ($ChunkOverlap -ne $using:DefaultChunkOverlap) { $params.ChunkOverlap = $ChunkOverlap }
+        #if ($MaxWorkers -ne $using:DefaultMaxWorkers) { $params.MaxWorkers = $MaxWorkers }
         
         # Pass global config
         $params.ChromaDbPath = $ChromaDbPath
         $params.OllamaUrl = $OllamaUrl
         $params.EmbeddingModel = $EmbeddingModel
+        
+        # Pass MaxWorkers parameter
+        if ($MaxWorkers -gt 0) {
+            $params.MaxWorkers = $MaxWorkers
+        }
 
         $functionsPath = "Functions"
         
@@ -424,6 +436,7 @@ try {
                 embeddingModel = $using:EmbeddingModel
                 defaultChunkSize = $using:DefaultChunkSize
                 defaultChunkOverlap = $using:DefaultChunkOverlap
+                defaultMaxWorkers = $using:DefaultMaxWorkers
                 defaultCollectionName = $using:DefaultCollectionName
             }
         }
@@ -440,6 +453,7 @@ try {
                 $fileId = if ($null -ne $data.fileId) { $data.fileId } else { 0 }
                 $chunkSize = if ($null -ne $data.chunkSize) { $data.chunkSize } else { $using:DefaultChunkSize }
                 $chunkOverlap = if ($null -ne $data.chunkOverlap) { $data.chunkOverlap } else { $using:DefaultChunkOverlap }
+                $maxWorkers = if ($null -ne $data.maxWorkers) { $data.maxWorkers } else { $using:DefaultMaxWorkers }
                 $contentType = if ($null -ne $data.contentType) { $data.contentType } else { "Text" }
                 $collectionName = if ($null -ne $data.collectionName -and -not [string]::IsNullOrEmpty($data.collectionName)) { $data.collectionName } else { $using:DefaultCollectionName }
 
@@ -447,7 +461,7 @@ try {
                 $ollamaUrl = $using:OllamaUrl
                 $embeddingModel = $using:EmbeddingModel
 
-                $result = Add-Document -OriginalFilePath $originalFilePath -ChromaDbPath $chromaDbPath -OllamaUrl $ollamaUrl -EmbeddingModel $embeddingModel -FilePath $filePath -FileId $fileId -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -ContentType $contentType -CollectionName $collectionName  
+                $result = Add-Document -OriginalFilePath $originalFilePath -ChromaDbPath $chromaDbPath -OllamaUrl $ollamaUrl -EmbeddingModel $embeddingModel -FilePath $filePath -FileId $fileId -ChunkSize $chunkSize -ChunkOverlap $chunkOverlap -MaxWorkers $maxWorkers -ContentType $contentType -CollectionName $collectionName  
                 
                 if ($result.success) {
                     Write-PodeJsonResponse -Value $result

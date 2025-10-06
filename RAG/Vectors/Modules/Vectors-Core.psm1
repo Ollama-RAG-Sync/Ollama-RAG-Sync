@@ -14,6 +14,7 @@ $script:DefaultConfig = @{
     EmbeddingModel = "mxbai-embed-large:latest"
     ChunkSize = 20  # Number of lines per chunk
     ChunkOverlap = 2  # Number of lines to overlap between chunks
+    MaxWorkers = 5  # Number of concurrent workers for parallel processing
     SupportedExtensions = ".txt,.md,.html,.csv,.json"
     LogLevel = "Info"  # Debug, Info, Warning, Error
 }

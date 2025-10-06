@@ -12,6 +12,9 @@ param(
     [Parameter(Mandatory=$false)]
     [int]$ChunkOverlap = 0,
     
+    [Parameter(Mandatory=$false)]
+    [int]$MaxWorkers = 0,
+    
     [Parameter(Mandatory=$true)]
     [string]$ChromaDbPath,
     
@@ -68,6 +71,11 @@ try
     if ($ChunkOverlap -gt 0) {
         $parameters.ChunkOverlap = $ChunkOverlap
     }
+    
+    if ($MaxWorkers -gt 0) {
+        $parameters.MaxWorkers = $MaxWorkers
+    }
+    
     $result = Add-DocumentToVectorStore @parameters
 
     if ($result) {

@@ -2,6 +2,7 @@
 """
 Document Embedding Generator
 Generates vector embeddings for entire documents using Ollama.
+Enhanced with improved error handling and timeout support.
 """
 
 import sys
@@ -30,7 +31,7 @@ def log_to_file(message, log_path):
             pass  # Silent fail for logging errors
 
 
-def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:11434", log_path=None):
+def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:11434", log_path=None, timeout=60):
     """
     Get embeddings from Ollama API
     
@@ -39,6 +40,7 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
         model (str): The model to use (default: "llama3")
         base_url (str): The base URL for Ollama API (default: "http://localhost:11434")
         log_path (str): Path to log file (optional)
+        timeout (int): Request timeout in seconds (default: 60)
         
     Returns:
         dict: A dictionary with "embedding" (list), "duration" (float), and "created_at" (str), or None if error.
@@ -68,7 +70,7 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
     
     # Send request and get response
     try:
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             response_text = response.read().decode('utf-8')
             end_time = time.time()
             duration = end_time - start_time
@@ -78,7 +80,7 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
                 response_data = json.loads(response_text)
             except json.JSONDecodeError:
                 log_to_file(f"ERROR:Failed to parse JSON response: {response_text}", log_path)
-                return {"embedding": None, "duration": duration}
+                return {"embedding": None, "duration": duration, "created_at": datetime.datetime.now().isoformat()}
             
             # Handle different response formats
             if isinstance(response_data, dict):
@@ -109,10 +111,28 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
                 "created_at": datetime.datetime.now().isoformat()
             }
 
+    except urllib.error.HTTPError as e:
+        end_time = time.time()
+        duration = end_time - start_time
+        log_to_file(f"ERROR:HTTP error {e.code} connecting to Ollama: {e.reason}", log_path)
+        return {
+            "embedding": None, 
+            "duration": duration, 
+            "created_at": datetime.datetime.now().isoformat()
+        }
     except urllib.error.URLError as e:
         end_time = time.time()
         duration = end_time - start_time
-        log_to_file(f"ERROR:Error connecting to Ollama: {e}", log_path)
+        log_to_file(f"ERROR:Error connecting to Ollama: {e.reason}", log_path)
+        return {
+            "embedding": None, 
+            "duration": duration, 
+            "created_at": datetime.datetime.now().isoformat()
+        }
+    except Exception as e:
+        end_time = time.time()
+        duration = end_time - start_time
+        log_to_file(f"ERROR:Unexpected error: {str(e)}", log_path)
         return {
             "embedding": None, 
             "duration": duration, 

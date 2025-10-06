@@ -2,6 +2,7 @@
 """
 Chunk Embeddings Generator
 Chunks document content and generates embeddings for each chunk using Ollama.
+Supports concurrent processing for improved performance.
 """
 
 import sys
@@ -12,6 +13,7 @@ import time
 import datetime
 import os
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 def log_to_file(message, log_path):
@@ -89,7 +91,7 @@ def chunk_text(text, chunk_size=20, chunk_overlap=2):
     return chunks
 
 
-def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:11434", log_path=None):
+def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:11434", log_path=None, timeout=60):
     """
     Get embeddings from Ollama API
     
@@ -98,6 +100,7 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
         model (str): The model to use (default: "llama3")
         base_url (str): The base URL for Ollama API (default: "http://localhost:11434")
         log_path (str): Path to log file (optional)
+        timeout (int): Request timeout in seconds (default: 60)
         
     Returns:
         dict: A dictionary with "embedding" (list) and "duration" (float), or None if error.
@@ -127,7 +130,7 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
     
     # Send request and get response
     try:
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             response_text = response.read().decode('utf-8')
             end_time = time.time()
             duration = end_time - start_time
@@ -137,7 +140,7 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
                 response_data = json.loads(response_text)
             except json.JSONDecodeError:
                 log_to_file(f"ERROR:Failed to parse JSON response: {response_text}", log_path)
-                return {"embedding": None, "duration": duration}
+                return {"embedding": None, "duration": duration, "created_at": datetime.datetime.now().isoformat()}
             
             # Handle different response formats
             if isinstance(response_data, dict):
@@ -168,10 +171,28 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
                 "created_at": datetime.datetime.now().isoformat()
             }
             
+    except urllib.error.HTTPError as e:
+        end_time = time.time()
+        duration = end_time - start_time
+        log_to_file(f"ERROR:HTTP error {e.code} connecting to Ollama: {e.reason}", log_path)
+        return {
+            "embedding": None, 
+            "duration": duration, 
+            "created_at": datetime.datetime.now().isoformat()
+        }
     except urllib.error.URLError as e:
         end_time = time.time()
         duration = end_time - start_time
-        log_to_file(f"ERROR:Error connecting to Ollama: {e}", log_path)
+        log_to_file(f"ERROR:Error connecting to Ollama: {e.reason}", log_path)
+        return {
+            "embedding": None, 
+            "duration": duration, 
+            "created_at": datetime.datetime.now().isoformat()
+        }
+    except Exception as e:
+        end_time = time.time()
+        duration = end_time - start_time
+        log_to_file(f"ERROR:Unexpected error: {str(e)}", log_path)
         return {
             "embedding": None, 
             "duration": duration, 
@@ -179,9 +200,9 @@ def get_embedding_from_ollama(text, model="llama3", base_url="http://localhost:1
         }
 
 
-def generate_chunk_embeddings(text, chunk_size, chunk_overlap, model, base_url, log_path=None):
+def generate_chunk_embeddings(text, chunk_size, chunk_overlap, model, base_url, log_path=None, max_workers=5):
     """
-    Generate embeddings for text chunks.
+    Generate embeddings for text chunks using parallel processing.
     
     Args:
         text (str): The document text
@@ -190,6 +211,7 @@ def generate_chunk_embeddings(text, chunk_size, chunk_overlap, model, base_url, 
         model (str): The embedding model to use
         base_url (str): The Ollama API base URL
         log_path (str): Optional log file path
+        max_workers (int): Maximum number of concurrent workers (default: 5)
         
     Returns:
         list: List of chunk embeddings with metadata
@@ -202,32 +224,53 @@ def generate_chunk_embeddings(text, chunk_size, chunk_overlap, model, base_url, 
     # Split content into chunks
     chunks = chunk_text(text, chunk_size, chunk_overlap)
     log_to_file(f"INFO:Split document into {len(chunks)} chunks", log_path)
+    log_to_file(f"INFO:Processing chunks with {max_workers} concurrent workers", log_path)
     
-    # Get embeddings for each chunk
-    chunk_embeddings = []
-    for i, chunk_data in enumerate(chunks):
-        embedding_result = get_embedding_from_ollama(
-            chunk_data["text"], 
-            model, 
-            base_url, 
-            log_path
-        )
+    # Initialize result array with None values (to preserve order)
+    chunk_embeddings = [None] * len(chunks)
+    
+    # Process chunks in parallel using ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all chunk processing tasks
+        future_to_index = {
+            executor.submit(
+                get_embedding_from_ollama,
+                chunk_data["text"],
+                model,
+                base_url,
+                log_path
+            ): (i, chunk_data)
+            for i, chunk_data in enumerate(chunks)
+        }
         
-        if embedding_result is None or embedding_result["embedding"] is None:
-            log_to_file(f"ERROR:Failed to get embedding for chunk {i+1}", log_path)
-            return None
-        
-        chunk_embeddings.append({
-            'chunk_id': i,
-            'text': chunk_data["text"],
-            'start_line': chunk_data["start_line"],
-            'end_line': chunk_data["end_line"],
-            'embedding': embedding_result["embedding"],
-            'duration': embedding_result["duration"],
-            'created_at': embedding_result["created_at"]
-        })
-        
-        log_to_file(f"INFO:Chunk {i+1} / {len(chunks)} embeddings created", log_path)
+        # Collect results as they complete
+        completed_count = 0
+        for future in as_completed(future_to_index):
+            i, chunk_data = future_to_index[future]
+            completed_count += 1
+            
+            try:
+                embedding_result = future.result()
+                
+                if embedding_result is None or embedding_result["embedding"] is None:
+                    log_to_file(f"ERROR:Failed to get embedding for chunk {i+1}", log_path)
+                    return None
+                
+                chunk_embeddings[i] = {
+                    'chunk_id': i,
+                    'text': chunk_data["text"],
+                    'start_line': chunk_data["start_line"],
+                    'end_line': chunk_data["end_line"],
+                    'embedding': embedding_result["embedding"],
+                    'duration': embedding_result["duration"],
+                    'created_at': embedding_result["created_at"]
+                }
+                
+                log_to_file(f"INFO:Chunk {completed_count} / {len(chunks)} embeddings created", log_path)
+                
+            except Exception as e:
+                log_to_file(f"ERROR:Exception processing chunk {i+1}: {str(e)}", log_path)
+                return None
     
     return chunk_embeddings
 
@@ -267,6 +310,12 @@ def main():
         "--log-path",
         help="Path to log file"
     )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=5,
+        help="Maximum number of concurrent workers for parallel processing (default: 5)"
+    )
     
     args = parser.parse_args()
     
@@ -285,7 +334,8 @@ def main():
         chunk_overlap=args.chunk_overlap,
         model=args.model,
         base_url=args.base_url,
-        log_path=args.log_path
+        log_path=args.log_path,
+        max_workers=args.max_workers
     )
     
     if result is None:
