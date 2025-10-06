@@ -15,8 +15,19 @@ param(
     [bool]$ReturnContent = $true,
     
     [Parameter(Mandatory=$false)]
-    [int]$VectorsPort = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_VECTORS_API_PORT", "User")
+    [int]$VectorsPort = 0
 )
+
+# Import environment helper
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+$commonPath = Join-Path -Path (Split-Path -Parent $scriptPath) -ChildPath "Common"
+Import-Module (Join-Path -Path $commonPath -ChildPath "EnvironmentHelper.psm1") -Force
+
+# Get environment variable if not provided
+if ($VectorsPort -eq 0) {
+    $envPort = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_VECTORS_API_PORT" -DefaultValue "10001"
+    $VectorsPort = [int]$envPort
+}
 <#
 .SYNOPSIS
     Finds the best local documents based on a search query.

@@ -101,11 +101,11 @@ function Download-HandleExe {
         
         # Download handle.exe from Sysinternals
         Write-Host "Downloading Sysinternals handle.exe..." -ForegroundColor Cyan
-        $handleZip = Join-Path -Path $env:TEMP -ChildPath "handle.zip"
+        $handleZip = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "handle.zip"
         Invoke-WebRequest -Uri "https://download.sysinternals.com/files/Handle.zip" -OutFile $handleZip -ErrorAction Stop
         
         # Create a temporary directory for extraction
-        $extractDir = Join-Path -Path $env:TEMP -ChildPath "HandleExtract"
+        $extractDir = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "HandleExtract"
         if (Test-Path -Path $extractDir) {
             $null = Remove-Item -Path $extractDir -Recurse -Force
         }
@@ -224,7 +224,7 @@ function Install-Package {
     
     $nugetUrl = "https://www.nuget.org/api/v2/package/$packageName/$packageVersion"
     $guid = [guid]::NewGuid().ToString()
-    $tempFolder = $env:TEMP + "\$guid"
+    $tempFolder = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath $guid
     New-Item $tempFolder -ItemType Directory | Out-Null
     $tempFile = Join-Path -Path $tempFolder -ChildPath "$packageName.nupkg"
     $targetFilePath = Join-Path -Path $InstallPath -ChildPath $targetFileName

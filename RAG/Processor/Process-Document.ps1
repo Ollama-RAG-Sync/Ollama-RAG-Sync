@@ -18,19 +18,19 @@ param(
     [string]$FilePath,
 
     [Parameter(Mandatory=$false)]
-    [string]$InstallPath = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_INSTALL_PATH", "User"),
+    [string]$InstallPath,
 
     [Parameter(Mandatory=$false)]
-    [int]$VectorsPort = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_VECTORS_API_PORT", "User"),
+    [int]$VectorsPort = 0,
 
     [Parameter(Mandatory=$false)]
-    [int]$FileTrackerPort = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_FILE_TRACKER_API_PORT", "User"),
+    [int]$FileTrackerPort = 0,
 
     [Parameter(Mandatory=$false)]
-    [int]$ChunkSize = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_CHUNK_SIZE", "User"),
+    [int]$ChunkSize = 0,
 
     [Parameter(Mandatory=$false)]
-    [int]$ChunkOverlap = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_CHUNK_OVERLAP", "User"),
+    [int]$ChunkOverlap = 0,
 
     [Parameter(Mandatory=$false)]
     [ValidateSet("marker", "tesseract", "ocrmypdf", "pymupdf")]
@@ -39,6 +39,32 @@ param(
     [Parameter(Mandatory=$false)]
     [switch]$Force
 )
+
+# Import environment helper
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+$commonPath = Join-Path -Path (Split-Path -Parent $scriptPath) -ChildPath "Common"
+Import-Module (Join-Path -Path $commonPath -ChildPath "EnvironmentHelper.psm1") -Force
+
+# Get environment variables with cross-platform support
+if ([string]::IsNullOrWhiteSpace($InstallPath)) {
+    $InstallPath = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_INSTALL_PATH"
+}
+if ($VectorsPort -eq 0) {
+    $envPort = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_VECTORS_API_PORT" -DefaultValue "10001"
+    $VectorsPort = [int]$envPort
+}
+if ($FileTrackerPort -eq 0) {
+    $envPort = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_FILE_TRACKER_API_PORT" -DefaultValue "10003"
+    $FileTrackerPort = [int]$envPort
+}
+if ($ChunkSize -eq 0) {
+    $envChunkSize = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_CHUNK_SIZE" -DefaultValue "20"
+    $ChunkSize = [int]$envChunkSize
+}
+if ($ChunkOverlap -eq 0) {
+    $envChunkOverlap = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_CHUNK_OVERLAP" -DefaultValue "2"
+    $ChunkOverlap = [int]$envChunkOverlap
+}
 
 # --- Logging Functions ---
 

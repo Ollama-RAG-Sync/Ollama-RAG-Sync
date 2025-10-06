@@ -10,13 +10,13 @@ param (
     [string]$ListenAddress = "localhost", # Pode uses this in Start-PodeServer -Endpoint
     
     [Parameter(Mandatory=$false)]
-    [int]$Port = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_VECTORS_API_PORT", "User") ?? 10001,
+    [int]$Port = 0,
 
     [Parameter(Mandatory=$false)]
-    [string]$OllamaUrl = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_URL", "User") ?? "http://localhost:11434", # Ollama API URL
+    [string]$OllamaUrl, # Ollama API URL
     
     [Parameter(Mandatory=$false)]
-    [string]$EmbeddingModel = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_EMBEDDING_MODEL", "User") ?? "mxbai-embed-large:latest",
+    [string]$EmbeddingModel,
     
     [Parameter(Mandatory=$false)]
     [int]$DefaultChunkSize = 20,  # Number of lines per chunk
@@ -34,11 +34,31 @@ param (
     [switch]$UseHttps, # Pode handles HTTPS via Start-PodeServer -Endpoint options
 
     [Parameter(Mandatory=$false)]
-    [string]$InstallPath = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_INSTALL_PATH", "User")
+    [string]$InstallPath
 ) 
  
  # Import Pode Module
  Import-Module Pode -ErrorAction Stop
+
+ # Determine script path and import environment helper
+ $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+ $commonPath = Join-Path -Path (Split-Path -Parent $scriptPath) -ChildPath "Common"
+ Import-Module (Join-Path -Path $commonPath -ChildPath "EnvironmentHelper.psm1") -Force
+
+ # Get environment variables with cross-platform support
+ if ([string]::IsNullOrWhiteSpace($InstallPath)) {
+     $InstallPath = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_INSTALL_PATH"
+ }
+ if ($Port -eq 0) {
+     $envPort = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_VECTORS_API_PORT" -DefaultValue "10001"
+     $Port = [int]$envPort
+ }
+ if ([string]::IsNullOrWhiteSpace($OllamaUrl)) {
+     $OllamaUrl = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_URL" -DefaultValue "http://localhost:11434"
+ }
+ if ([string]::IsNullOrWhiteSpace($EmbeddingModel)) {
+     $EmbeddingModel = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_EMBEDDING_MODEL" -DefaultValue "mxbai-embed-large:latest"
+ }
  
  # Validate InstallPath
  if ([string]::IsNullOrWhiteSpace($InstallPath)) {

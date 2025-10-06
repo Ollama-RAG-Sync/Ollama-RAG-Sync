@@ -220,7 +220,7 @@ Describe "Error Handling and Edge Cases" -Tag "Integration", "ErrorHandling" {
         
         It "Should handle invalid file paths" {
             $testDb = New-TestDatabase
-            $result = Update-FileProcessingStatus -FilePath "C:\InvalidPath\File.txt" -InstallPath $env:TEMP -DatabasePath $testDb.Path -Dirty $false
+            $result = Update-FileProcessingStatus -FilePath "C:\InvalidPath\File.txt" -InstallPath ([System.IO.Path]::GetTempPath()) -DatabasePath $testDb.Path -Dirty $false
             
             $result | Should -Be $false
             Remove-TestDatabase -TestDatabase $testDb

@@ -36,7 +36,7 @@
 | 🤖 **MCP Integration** | Model Context Protocol server for seamless AI assistant integration |
 | ⚙️ **Flexible Configuration** | Environment-based configuration with sensible defaults and easy customization |
 | ✅ **Comprehensive Testing** | 59+ automated tests with CI/CD pipeline for reliability |
-| 📊 **Multi-Platform** | Works on Windows, Linux, and macOS |
+| �️ **Cross-Platform** | Works on Windows, Linux, and macOS |
 
 ## 🏗️ Architecture
 
@@ -109,6 +109,7 @@ All Python packages are auto-installed during setup via `pip`.
 
 ### Quick Start (5 Minutes)
 
+#### Windows
 ```powershell
 # 1. Clone the repository
 git clone https://github.com/your-username/Ollama-RAG-Sync.git
@@ -118,7 +119,7 @@ cd Ollama-RAG-Sync
 ollama serve
 
 # 3. Pull the embedding model (one-time)
-ollama pull mxbai-embed-large:latest
+ollama pull embeddinggemma
 
 # 4. Run setup script
 .\RAG\Setup-RAG.ps1 -InstallPath "C:\OllamaRAG"
@@ -130,6 +131,34 @@ ollama pull mxbai-embed-large:latest
 Invoke-RestMethod -Uri "http://localhost:10001/health"
 Invoke-RestMethod -Uri "http://localhost:10003/api/collections"
 ```
+
+#### Linux/macOS
+```bash
+# 1. Clone the repository
+git clone https://github.com/your-username/Ollama-RAG-Sync.git
+cd Ollama-RAG-Sync
+
+# 2. Ensure Ollama is running
+ollama serve &
+
+# 3. Pull the embedding model (one-time)
+ollama pull embeddinggemma
+
+# 4. Run setup script (requires PowerShell 7+)
+pwsh ./RAG/Setup-RAG.ps1 -InstallPath "/opt/ollama-rag"
+
+# 5. Load environment variables (IMPORTANT!)
+source ~/.bashrc  # or ~/.zshrc depending on your shell
+
+# 6. Start the system
+pwsh ./RAG/Start-RAG.ps1
+
+# 7. Verify installation (in a new terminal)
+curl http://localhost:10001/health
+curl http://localhost:10003/api/collections
+```
+
+> **Note for Linux/macOS users:** After running Setup-RAG.ps1, you must source your shell profile (e.g., `source ~/.bashrc`) or start a new terminal session to load the environment variables. See the [Cross-Platform Setup Guide](docs/CROSS_PLATFORM_SETUP.md) for detailed instructions.
 
 ### Detailed Setup
 
@@ -1417,6 +1446,7 @@ Invoke-ScriptAnalyzer -Path .\RAG -Recurse
 
 Comprehensive documentation is available:
 
+- **[Cross-Platform Setup Guide](docs/CROSS_PLATFORM_SETUP.md)** - Installation and configuration for Windows, Linux, and macOS
 - **[Architecture Overview](docs/ARCHITECTURE.md)** - System design and structure
 - **[Testing Guide](docs/TESTING.md)** - Complete testing documentation
 - **[Contributing Guide](docs/CONTRIBUTING.md)** - How to contribute

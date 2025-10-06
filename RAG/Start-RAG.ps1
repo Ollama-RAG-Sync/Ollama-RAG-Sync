@@ -1,32 +1,32 @@
 param (
     [Parameter(Mandatory = $false, HelpMessage = "Installation directory for RAG system files")]
     [ValidateNotNullOrEmpty()]
-    [string]$InstallPath = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_INSTALL_PATH", "User"),
+    [string]$InstallPath,
     
     [Parameter(Mandatory = $false, HelpMessage = "Ollama embedding model")]
     [ValidateNotNullOrEmpty()]
-    [string]$EmbeddingModel = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_EMBEDDING_MODEL", "User") ?? "mxbai-embed-large:latest",
+    [string]$EmbeddingModel,
     
     [Parameter(Mandatory = $false, HelpMessage = "Ollama API base URL")]
     [ValidateNotNullOrEmpty()]
     [ValidatePattern('^https?://.+', ErrorMessage = "OllamaUrl must start with http:// or https://")]
-    [string]$OllamaUrl = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_URL", "User") ?? "http://localhost:11434",
+    [string]$OllamaUrl,
 
     [Parameter(Mandatory = $false, HelpMessage = "Number of lines per text chunk")]
     [ValidateRange(1, 1000)]
-    [int]$ChunkSize = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_CHUNK_SIZE", "User") ?? 20,
+    [int]$ChunkSize = 0,
 
     [Parameter(Mandatory = $false, HelpMessage = "Number of overlapping lines between chunks")]
     [ValidateRange(0, 100)]
-    [int]$ChunkOverlap = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_CHUNK_OVERLAP", "User") ?? 2,
+    [int]$ChunkOverlap = 0,
 
     [Parameter(Mandatory = $false, HelpMessage = "Port for FileTracker API")]
     [ValidateRange(1, 65535)]
-    [int]$FileTrackerPort = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_FILE_TRACKER_API_PORT", "User"),
+    [int]$FileTrackerPort = 0,
     
     [Parameter(Mandatory = $false, HelpMessage = "Port for Vectors API")]
     [ValidateRange(1, 65535)]
-    [int]$VectorsPort = [System.Environment]::GetEnvironmentVariable("OLLAMA_RAG_VECTORS_API_PORT", "User")
+    [int]$VectorsPort = 0
 )
 
 # Import common modules
@@ -35,24 +35,41 @@ $commonPath = Join-Path -Path $scriptDirectory -ChildPath "Common"
 
 Import-Module (Join-Path -Path $commonPath -ChildPath "Logger.psm1") -Force
 Import-Module (Join-Path -Path $commonPath -ChildPath "Validation.psm1") -Force
+Import-Module (Join-Path -Path $commonPath -ChildPath "EnvironmentHelper.psm1") -Force
+
+# Get environment variables with cross-platform support
+if ([string]::IsNullOrWhiteSpace($InstallPath)) {
+    $InstallPath = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_INSTALL_PATH"
+}
+if ([string]::IsNullOrWhiteSpace($EmbeddingModel)) {
+    $EmbeddingModel = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_EMBEDDING_MODEL" -DefaultValue "mxbai-embed-large:latest"
+}
+if ([string]::IsNullOrWhiteSpace($OllamaUrl)) {
+    $OllamaUrl = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_URL" -DefaultValue "http://localhost:11434"
+}
+if ($ChunkSize -eq 0) {
+    $envChunkSize = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_CHUNK_SIZE" -DefaultValue "20"
+    $ChunkSize = [int]$envChunkSize
+}
+if ($ChunkOverlap -eq 0) {
+    $envChunkOverlap = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_CHUNK_OVERLAP" -DefaultValue "2"
+    $ChunkOverlap = [int]$envChunkOverlap
+}
+if ($FileTrackerPort -eq 0) {
+    $envFileTrackerPort = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_FILE_TRACKER_API_PORT" -DefaultValue "10003"
+    $FileTrackerPort = [int]$envFileTrackerPort
+}
+if ($VectorsPort -eq 0) {
+    $envVectorsPort = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_VECTORS_API_PORT" -DefaultValue "10001"
+    $VectorsPort = [int]$envVectorsPort
+}
 
 # Validate required parameters and environment variables
 try {
-    $requiredVars = @("OLLAMA_RAG_INSTALL_PATH", "OLLAMA_RAG_VECTORS_API_PORT", "OLLAMA_RAG_FILE_TRACKER_API_PORT")
-    $envVars = Test-EnvironmentVariables -VariableNames $requiredVars
-    
-    # Use env vars if parameters not provided
-    if ([string]::IsNullOrWhiteSpace($InstallPath)) {
-        $InstallPath = $envVars["OLLAMA_RAG_INSTALL_PATH"]
-    }
-    if ($VectorsPort -eq 0) {
-        $VectorsPort = [int]$envVars["OLLAMA_RAG_VECTORS_API_PORT"]
-    }
-    if ($FileTrackerPort -eq 0) {
-        $FileTrackerPort = [int]$envVars["OLLAMA_RAG_FILE_TRACKER_API_PORT"]
-    }
-    
     # Validate paths and ports
+    if ([string]::IsNullOrWhiteSpace($InstallPath)) {
+        throw "OLLAMA_RAG_INSTALL_PATH is required. Please run Setup-RAG.ps1 first or provide -InstallPath parameter."
+    }
     Test-PathExists -Path $InstallPath
     Test-PortValid -Port $VectorsPort
     Test-PortValid -Port $FileTrackerPort
