@@ -366,72 +366,18 @@ function Convert-PdfWithMarker {
     )
     
     try {
-        # Convert to Markdown using Python marker library
-        $pythonScript = @"
-import sys
-import os
-from marker.converters.pdf import PdfConverter
-from marker.models import create_model_dict
-from marker.config.parser import ConfigParser
-
-if __name__ == "__main__":
-    try:
-        # Load the PDF file
-        pdf_file = '$($PdfFile.Replace("\", "\\"))'
-        md_output = '$($MdOutputPath.Replace("\", "\\"))'
-    
-        config = {
-            "disable_image_extraction": "true",
-            "output_format": "markdown"
+        # Get the path to the Python script
+        $scriptDir = Split-Path -Parent $PSScriptRoot
+        $pythonScriptPath = Join-Path $scriptDir "Conversion\python_scripts\pdf_to_markdown_marker.py"
+        
+        if (-not (Test-Path -Path $pythonScriptPath)) {
+            Write-Log -Level "ERROR" -Message "Python script not found: $pythonScriptPath"
+            return $false
         }
-        config_parser = ConfigParser(config)
-
-        # Initialize the converter
-        converter = PdfConverter(
-            config=config_parser.generate_config_dict(),
-            artifact_dict=create_model_dict(),
-            processor_list=config_parser.get_processors(),
-            renderer=config_parser.get_renderer()
-        )
-    
-        # Convert the PDF
-        print(f"Processing {pdf_file}...")
-
-        rendered = converter(pdf_file)
         
-        # Save as Markdown
-        print(f"Saving Markdown to {md_output}...")
-        with open(md_output, 'w', encoding='utf-8') as f:
-            f.write(rendered.markdown)
-    
-        # Verify the output files were created
-        if os.path.exists(md_output):
-            md_size = os.path.getsize(md_output)
-            print(f"Conversion completed successfully.")
-            print(f"Created Markdown file: {md_output} ({md_size} bytes)")
-            sys.exit(0)
-        else:
-            missing = []
-            if not os.path.exists(md_output):
-                missing.append("Markdown file")
-            print(f"Error: {', '.join(missing)} not created.")
-            sys.exit(1)
-
-    except Exception as e:
-            print(f"Error during conversion: {str(e)}")
-            sys.exit(1)
-"@
-
-        # Save the Python script to a temporary file
-        $scriptPath = [System.IO.Path]::GetTempFileName() + ".py"
-        $pythonScript | Out-File -FilePath $scriptPath -Encoding UTF8
-        Write-Host $scriptPath        
         # Execute the Python script
-        $result = & python $scriptPath 2>&1
+        $result = & python $pythonScriptPath $PdfFile $MdOutputPath 2>&1
         $exitCode = $LASTEXITCODE
-        
-        # Remove temporary script file
-        $null = Remove-Item -Path $scriptPath -Force
         
         # Output the result from the Python script
         foreach ($line in $result) {
@@ -457,82 +403,18 @@ function Convert-PdfWithTesseract {
     )
     
     try {
-        # Convert to Markdown using pytesseract
-        $pythonScript = @"
-import sys
-import os
-import pytesseract
-from pdf2image import convert_from_path
-from PIL import Image
-import tempfile
-import shutil
-
-if __name__ == "__main__":
-    try:
-        # Load the PDF file
-        pdf_file = '$($PdfFile.Replace("\", "\\"))'
-        md_output = '$($MdOutputPath.Replace("\", "\\"))'
-        temp_dir = tempfile.mkdtemp()
+        # Get the path to the Python script
+        $scriptDir = Split-Path -Parent $PSScriptRoot
+        $pythonScriptPath = Join-Path $scriptDir "Conversion\python_scripts\pdf_to_markdown_tesseract.py"
         
-        try:
-            print(f"Processing {pdf_file}...")
-            
-            # Convert PDF to images
-            print("Converting PDF to images...")
-            pages = convert_from_path(pdf_file, dpi=200, thread_count=4, poppler_path=None)
-            
-            # Process each page
-            full_text = []
-            for i, page in enumerate(pages):
-                print(f"Processing page {i+1}/{len(pages)}...")
-                # Save page as temporary image
-                img_path = os.path.join(temp_dir, f"page_{i+1}.png")
-                page.save(img_path, "PNG")
-                
-                # Extract text using tesseract
-                text = pytesseract.image_to_string(Image.open(img_path))
-                full_text.append(text)
-            
-            # Combine text and save as Markdown
-            print(f"Saving Markdown to {md_output}...")
-            with open(md_output, 'w', encoding='utf-8') as f:
-                # Add page breaks and headers
-                for i, text in enumerate(full_text):
-                    if i > 0:
-                        f.write("\\n\\n---\\n\\n")  # Page break in Markdown
-                    
-                    f.write(f"# Page {i+1}\\n\\n")
-                    f.write(text)
-            
-            # Verify the output file was created
-            if os.path.exists(md_output):
-                md_size = os.path.getsize(md_output)
-                print(f"Conversion completed successfully.")
-                print(f"Created Markdown file: {md_output} ({md_size} bytes)")
-                sys.exit(0)
-            else:
-                print(f"Error: Markdown file not created.")
-                sys.exit(1)
-                
-        finally:
-            # Clean up temporary directory
-            shutil.rmtree(temp_dir)
-
-    except Exception as e:
-        print(f"Error during conversion: {str(e)}")
-        sys.exit(1)
-"@
-
-        # Save the Python script to a temporary file
-        $scriptPath = [System.IO.Path]::GetTempFileName() + ".py"
-        $pythonScript | Out-File -FilePath $scriptPath -Encoding UTF8
-
+        if (-not (Test-Path -Path $pythonScriptPath)) {
+            Write-Log -Level "ERROR" -Message "Python script not found: $pythonScriptPath"
+            return $false
+        }
+        
         # Execute the Python script
-        $result = & python $scriptPath 2>&1
+        $result = & python $pythonScriptPath $PdfFile $MdOutputPath 2>&1
         $exitCode = $LASTEXITCODE
-        
-        # Remove temporary script file
-        $null = Remove-Item -Path $scriptPath -Force
         
         # Output the result from the Python script
         foreach ($line in $result) {
@@ -558,83 +440,18 @@ function Convert-PdfWithOcrMyPdf {
     )
     
     try {
-        # Convert to Markdown using OCRmyPDF
-        $pythonScript = @"
-import sys
-import os
-import tempfile
-import ocrmypdf
-import fitz  # PyMuPDF
-
-if __name__ == "__main__":
-    try:
-        # Load the PDF file
-        pdf_file = '$($PdfFile.Replace("\", "\\"))'
-        md_output = '$($MdOutputPath.Replace("\", "\\"))'
+        # Get the path to the Python script
+        $scriptDir = Split-Path -Parent $PSScriptRoot
+        $pythonScriptPath = Join-Path $scriptDir "Conversion\python_scripts\pdf_to_markdown_ocrmypdf.py"
         
-        # Create a temporary file for the OCR'd PDF
-        fd, temp_pdf = tempfile.mkstemp(suffix='.pdf')
-        os.close(fd)
-        
-        try:
-            print(f"Processing {pdf_file} with OCRmyPDF...")
-            
-            # Run OCR on the PDF
-            ocrmypdf.ocr(pdf_file, temp_pdf, force_ocr=True)
-            
-            # Extract text from the OCR'd PDF using PyMuPDF
-            print("Extracting text from OCR'd PDF...")
-            doc = fitz.open(temp_pdf)
-            full_text = []
-            
-            for page_num in range(len(doc)):
-                page = doc.load_page(page_num)
-                text = page.get_text()
-                full_text.append(text)
-            
-            doc.close()
-            
-            # Save as Markdown
-            print(f"Saving Markdown to {md_output}...")
-            with open(md_output, 'w', encoding='utf-8') as f:
-                # Add page breaks and headers
-                for i, text in enumerate(full_text):
-                    if i > 0:
-                        f.write("\\n\\n---\\n\\n")  # Page break in Markdown
-                    
-                    f.write(f"# Page {i+1}\\n\\n")
-                    f.write(text)
-            
-            # Verify the output file was created
-            if os.path.exists(md_output):
-                md_size = os.path.getsize(md_output)
-                print(f"Conversion completed successfully.")
-                print(f"Created Markdown file: {md_output} ({md_size} bytes)")
-                sys.exit(0)
-            else:
-                print(f"Error: Markdown file not created.")
-                sys.exit(1)
-        
-        finally:
-            # Clean up temporary file
-            if os.path.exists(temp_pdf):
-                os.unlink(temp_pdf)
-
-    except Exception as e:
-        print(f"Error during conversion: {str(e)}")
-        sys.exit(1)
-"@
-
-        # Save the Python script to a temporary file
-        $scriptPath = [System.IO.Path]::GetTempFileName() + ".py"
-        $pythonScript | Out-File -FilePath $scriptPath -Encoding UTF8
+        if (-not (Test-Path -Path $pythonScriptPath)) {
+            Write-Log -Level "ERROR" -Message "Python script not found: $pythonScriptPath"
+            return $false
+        }
         
         # Execute the Python script
-        $result = & python $scriptPath 2>&1
+        $result = & python $pythonScriptPath $PdfFile $MdOutputPath 2>&1
         $exitCode = $LASTEXITCODE
-        
-        # Remove temporary script file
-        $null = Remove-Item -Path $scriptPath -Force
         
         # Output the result from the Python script
         foreach ($line in $result) {
@@ -660,82 +477,18 @@ function Convert-PdfWithPyMuPdf {
     )
     
     try {
-        # Convert to Markdown using PyMuPDF
-        $pythonScript = @"
-import sys
-import os
-import fitz  # PyMuPDF
-
-if __name__ == "__main__":
-    try:
-        # Load the PDF file
-        pdf_file = '$($PdfFile.Replace("\", "\\"))'
-        md_output = '$($MdOutputPath.Replace("\", "\\"))'
+        # Get the path to the Python script
+        $scriptDir = Split-Path -Parent $PSScriptRoot
+        $pythonScriptPath = Join-Path $scriptDir "Conversion\python_scripts\pdf_to_markdown_pymupdf.py"
         
-        print(f"Processing {pdf_file} with PyMuPDF...")
-        
-        # Extract text from the PDF
-        doc = fitz.open(pdf_file)
-        full_text = []
-        
-        for page_num in range(len(doc)):
-            page = doc.load_page(page_num)
-            
-            # Get text
-            text = page.get_text()
-            
-            # Process blocks for better structure
-            blocks = page.get_text("blocks")
-            structured_text = ""
-            
-            # Sort blocks by y-coordinate to maintain reading order
-            blocks.sort(key=lambda b: b[1])  # Sort by y1 (top)
-            
-            for block in blocks:
-                # block[4] is the text content
-                structured_text += block[4] + "\\n\\n"
-            
-            full_text.append(structured_text if structured_text.strip() else text)
-        
-        doc.close()
-        
-        # Save as Markdown
-        print(f"Saving Markdown to {md_output}...")
-        with open(md_output, 'w', encoding='utf-8') as f:
-            # Add page breaks and headers
-            for i, text in enumerate(full_text):
-                if i > 0:
-                    f.write("\\n\\n---\\n\\n")  # Page break in Markdown
-                
-                f.write(f"# Page {i+1}\\n\\n")
-                f.write(text)
-        
-        # Verify the output file was created
-        if os.path.exists(md_output):
-            md_size = os.path.getsize(md_output)
-            print(f"Conversion completed successfully.")
-            print(f"Created Markdown file: {md_output} ({md_size} bytes)")
-            sys.exit(0)
-        else:
-            print(f"Error: Markdown file not created.")
-            sys.exit(1)
-
-    except Exception as e:
-        print(f"Error during conversion: {str(e)}")
-        sys.exit(1)
-"@
-
-        # Save the Python script to a temporary file
-        $scriptPath = [System.IO.Path]::GetTempFileName() + ".py"
-        $pythonScript | Out-File -FilePath $scriptPath -Encoding UTF8
+        if (-not (Test-Path -Path $pythonScriptPath)) {
+            Write-Log -Level "ERROR" -Message "Python script not found: $pythonScriptPath"
+            return $false
+        }
         
         # Execute the Python script
-        $result = & python $scriptPath 2>&1
+        $result = & python $pythonScriptPath $PdfFile $MdOutputPath 2>&1
         $exitCode = $LASTEXITCODE
-        Write-Host $result
-        
-        # Remove temporary script file
-        $null = Remove-Item -Path $scriptPath -Force
         
         # Output the result from the Python script
         foreach ($line in $result) {

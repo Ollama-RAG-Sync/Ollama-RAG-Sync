@@ -87,7 +87,7 @@ Model Context Protocol server for AI integration.
 - **PowerShell 7.0+** - [Download](https://github.com/PowerShell/PowerShell/releases)
 - **Ollama** - [Install Guide](https://ollama.ai/download)
 - **.NET 8.0 SDK** - [Download](https://dotnet.microsoft.com/download/dotnet/8.0) (for MCP server)
-- **Python 3.8+** - [Download](https://www.python.org/downloads/) (for document processing)
+- **Python 3.7+** - [Download](https://www.python.org/downloads/) (for document processing and embeddings)
 
 ### PowerShell Modules
 - `Pode` - REST API framework (auto-installed during setup)
@@ -95,8 +95,15 @@ Model Context Protocol server for AI integration.
 
 ### Python Packages
 - `chromadb` - Vector database
-- `requests` - HTTP library
-- `numpy` - Numerical computing (auto-installed during setup)
+- `requests` / `urllib` - HTTP library
+- `numpy` - Numerical computing
+- **PDF Processing** (optional):
+  - `PyMuPDF` - Fast PDF text extraction
+  - `marker-pdf` - Advanced PDF to Markdown conversion
+  - `pytesseract` + Poppler - OCR support
+  - `ocrmypdf` - PDF OCR processing
+
+All Python packages are auto-installed during setup via `pip`.
 
 ## 🛠️ Installation
 
@@ -901,6 +908,7 @@ Ollama-RAG-Sync/
 │   │   └── Tests/              # Unit tests
 │   ├── Processor/              # Document processing
 │   │   ├── Conversion/         # PDF to markdown
+│   │   │   └── python_scripts/ # PDF conversion Python scripts
 │   │   └── Tests/              # Unit tests
 │   ├── Search/                 # Search operations
 │   │   ├── Scripts/
@@ -908,8 +916,10 @@ Ollama-RAG-Sync/
 │   ├── Vectors/                # Vector operations
 │   │   ├── Modules/            # Core modules
 │   │   ├── Functions/          # API functions
+│   │   ├── python_scripts/     # Embedding & storage Python scripts
 │   │   ├── Tests/              # Unit tests
 │   │   └── server.psd1
+│   └── requirements.txt        # Python dependencies
 │   ├── Tests/                  # Integration tests
 │   │   ├── Integration/        # End-to-end tests
 │   │   ├── Fixtures/           # Test data
@@ -1108,6 +1118,119 @@ foreach ($collection in $collections) {
 .\RAG\FileTracker\Get-CollectionFiles.ps1 -CollectionName "MyDocs"
 ```
 
+## 🐍 Python Scripts
+
+The system uses standalone Python scripts for PDF conversion and vector operations, called by PowerShell orchestration.
+
+### PDF Conversion Scripts (`RAG/Processor/Conversion/python_scripts/`)
+
+**Fast Text Extraction:**
+```powershell
+python pdf_to_markdown_pymupdf.py input.pdf output.md
+```
+- Uses PyMuPDF for fast, direct text extraction
+- Best for text-based PDFs without images
+- ~10x faster than OCR methods
+
+**Advanced Conversion (Marker):**
+```powershell
+python pdf_to_markdown_marker.py input.pdf output.md --batch-multiplier 2
+```
+- High-quality conversion with layout preservation
+- Handles complex documents with tables and images
+- Configurable batch multiplier for GPU acceleration
+
+**OCR Support (Tesseract):**
+```powershell
+python pdf_to_markdown_tesseract.py input.pdf output.md --language eng
+```
+- OCR for scanned PDFs and images
+- Multi-language support (--language parameter)
+- Requires Tesseract and Poppler installation
+
+**OCR Support (OCRmyPDF):**
+```powershell
+python pdf_to_markdown_ocrmypdf.py input.pdf output.md
+```
+- Advanced OCR with force-OCR option
+- Better quality for scanned documents
+- Preserves original PDF structure
+
+### Vector Database Scripts (`RAG/Vectors/python_scripts/`)
+
+**Initialize ChromaDB:**
+```powershell
+python initialize_chromadb.py collection_name [--db-path ./chroma_db]
+```
+- Creates ChromaDB collections for documents and chunks
+- Configurable database path
+- Automatic collection naming (e.g., collection_documents, collection_chunks)
+
+**Generate Document Embedding:**
+```powershell
+python generate_document_embedding.py content.txt ^
+    --model mxbai-embed-large:latest ^
+    --base-url http://localhost:11434
+```
+- Generates embeddings for full documents via Ollama API
+- Returns JSON with embedding vector
+- Configurable model and API endpoint
+
+**Generate Chunk Embeddings:**
+```powershell
+python generate_chunk_embeddings.py content.txt ^
+    --chunk-size 20 ^
+    --chunk-overlap 2 ^
+    --model mxbai-embed-large:latest
+```
+- Splits documents into chunks with overlap
+- Generates embeddings for each chunk
+- Returns JSON array of chunks with embeddings and metadata
+
+**Store Embeddings:**
+```powershell
+python store_embeddings.py doc_id doc_name metadata.json embedding.json content.txt ^
+    --collection-name my_collection ^
+    --db-path ./chroma_db
+```
+- Stores document embeddings in ChromaDB
+- Supports custom metadata (JSON format)
+- Automatic collection management
+
+### Installation
+
+All Python dependencies are installed during setup:
+```powershell
+.\RAG\Setup-RAG.ps1 -InstallPath "C:\OllamaRAG"
+```
+
+Manual installation:
+```powershell
+pip install -r RAG/requirements.txt
+```
+
+### Script Integration
+
+Python scripts are called by PowerShell functions:
+- `Convert-PDFToMarkdown.ps1` → PDF conversion scripts
+- `Initialize-VectorDatabase.ps1` → `initialize_chromadb.py`
+- `Vectors-Embeddings.psm1` → Embedding generation and storage scripts
+
+All scripts include `--help` for parameter documentation:
+```powershell
+python script_name.py --help
+```
+
+### Architecture Benefits
+
+✅ **Separation of Concerns**: PowerShell orchestration, Python execution  
+✅ **Standalone Scripts**: Can be called independently or integrated  
+✅ **Testability**: Each script is independently testable  
+✅ **Maintainability**: Easier to update and debug  
+✅ **Reusability**: Scripts can be used in other projects  
+
+For complete documentation, see `docs/PYTHON_SCRIPTS_README.md`.
+
 ## 🧪 Testing
 
 The project includes comprehensive automated testing infrastructure with 59+ tests.
@@ -1300,6 +1423,7 @@ Comprehensive documentation is available:
 - **[Multi-Collection Storage](docs/MULTI_COLLECTION_STORAGE.md)** - Collection management guide
 - **[Reranking Summary](docs/RERANKING_SUMMARY.md)** - Reranking feature summary
 - **[Reranking Guide](RAG/Vectors/RERANKING.md)** - LLM-based reranking documentation
+- **[Python Scripts Guide](docs/PYTHON_SCRIPTS_README.md)** - Standalone Python scripts documentation
 - **[Quick Start Testing](QUICKSTART_TESTING.md)** - Testing in 5 minutes
 - **[Project Improvements](PROJECT_IMPROVEMENTS.md)** - Recent enhancements
 
