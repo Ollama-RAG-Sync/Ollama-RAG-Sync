@@ -3,7 +3,7 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.0+-blue.svg)](https://github.com/PowerShell/PowerShell)
 [![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg)](https://dotnet.microsoft.com/)
 
-> A comprehensive RAG (Retrieval-Augmented Generation) system that integrates with Ollama for document processing, vector storage, and semantic search. Built with PowerShell and .NET, featuring automated file tracking, REST APIs, and AI assistant integration through the Model Context Protocol.
+> A comprehensive RAG (Retrieval-Augmented Generation) system that integrates with Ollama for document processing, vector storage, and semantic search. Built as a collection of PowerShell and Python scripts with a .NET MCP server, featuring automated file tracking, REST APIs, and AI assistant integration through the Model Context Protocol.
 
 ## 📑 Table of Contents
 
@@ -112,7 +112,7 @@ All Python packages are auto-installed during setup via `pip`.
 #### Windows
 ```powershell
 # 1. Clone the repository
-git clone https://github.com/your-username/Ollama-RAG-Sync.git
+git clone https://github.com/Ollama-RAG-Sync/Ollama-RAG-Sync.git
 cd Ollama-RAG-Sync
 
 # 2. Ensure Ollama is running
@@ -135,7 +135,7 @@ Invoke-RestMethod -Uri "http://localhost:10003/api/collections"
 #### Linux/macOS
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-username/Ollama-RAG-Sync.git
+git clone https://github.com/Ollama-RAG-Sync/Ollama-RAG-Sync.git
 cd Ollama-RAG-Sync
 
 # 2. Ensure Ollama is running
@@ -164,7 +164,7 @@ curl http://localhost:10003/api/collections
 
 #### Step 1: Clone and Navigate
 ```powershell
-git clone https://github.com/your-username/Ollama-RAG-Sync.git
+git clone https://github.com/Ollama-RAG-Sync/Ollama-RAG-Sync.git
 cd Ollama-RAG-Sync
 ```
 
