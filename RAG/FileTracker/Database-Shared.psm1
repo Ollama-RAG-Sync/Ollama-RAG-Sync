@@ -2,7 +2,10 @@
 # This module contains shared functions for interacting with the FileTracker database
 
 # State variable to track if SQLite environment is initialized
-$script:SqliteEnvironmentInitialized = $false
+# Use Global scope to persist across module reloads
+if (-not $Global:SqliteEnvironmentInitialized) {
+    $Global:SqliteEnvironmentInitialized = $false
+}
 
 function Initialize-SqliteEnvironment {
     <#
@@ -19,8 +22,18 @@ function Initialize-SqliteEnvironment {
         [string]$InstallPath
     )
 
-    if ($script:SqliteEnvironmentInitialized) {
+    if ($Global:SqliteEnvironmentInitialized) {
         Write-Verbose "SQLite environment already initialized."
+        return $true
+    }
+
+    # Check if assemblies are already loaded in the AppDomain
+    $loadedAssemblies = [System.AppDomain]::CurrentDomain.GetAssemblies()
+    $sqliteLoaded = $loadedAssemblies | Where-Object { $_.GetName().Name -eq "Microsoft.Data.Sqlite" }
+    
+    if ($sqliteLoaded) {
+        Write-Verbose "SQLite assemblies already loaded in AppDomain."
+        $Global:SqliteEnvironmentInitialized = $true
         return $true
     }
 
@@ -48,9 +61,9 @@ function Initialize-SqliteEnvironment {
         # Set SQLitePCLRaw provider
         # Fallback to manual provider setup
         [SQLitePCL.raw]::SetProvider([SQLitePCL.SQLite3Provider_e_sqlite3]::new())
-        Write-Verbose "Initialized SQLitePCL using manual provider setup"
+        Write-Verbose "Initialized SQLitePCLRaw using manual provider setup"
          
-        $script:SqliteEnvironmentInitialized = $true
+        $Global:SqliteEnvironmentInitialized = $true
         Write-Verbose "SQLite environment initialized successfully."
         return $true
     }
@@ -66,7 +79,7 @@ function Initialize-SqliteEnvironment {
             }
         }
         # Reset flag on failure
-        $script:SqliteEnvironmentInitialized = $false 
+        $Global:SqliteEnvironmentInitialized = $false 
         return $false
     }
 }
@@ -89,7 +102,7 @@ function Get-DatabaseConnection {
     )
 
     # Ensure SQLite environment is ready
-    if (-not $script:SqliteEnvironmentInitialized) {
+    if (-not $Global:SqliteEnvironmentInitialized) {
         if (-not (Initialize-SqliteEnvironment -InstallPath $InstallPath)) {
             throw "Failed to initialize SQLite environment. Cannot connect to database."
         }

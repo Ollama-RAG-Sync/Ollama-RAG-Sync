@@ -526,6 +526,47 @@ try {
             Write-PodeJsonResponse -Value @{ status = "OK" } -StatusCode 200
         }
 
+        # GET /api/collections - List all collections in ChromaDB
+        Add-PodeRoute -Method Get -Path "/api/collections" -ScriptBlock {
+            try {
+                $chromaDbPath  = $using:chromaDbPath
+                $ollamaUrl = $using:ollamaUrl
+                $embeddingModel = $using:embeddingModel
+                
+                # Call function to list collections
+                $listCollectionsScript = Join-Path -Path ".\Functions" -ChildPath "List-Collections.ps1"
+                if (Test-Path $listCollectionsScript) {
+                    $collections = & $listCollectionsScript -ChromaDbPath $chromaDbPath
+                    Write-PodeJsonResponse -Value @{ success = $true; collections = $collections; count = $collections.Count }
+                } else {
+                    Write-PodeJsonResponse -StatusCode 501 -Value @{ success = $false; error = "List collections functionality not implemented" }
+                }
+            } catch {
+                Write-Log "Error in GET /api/collections: $_" -Level "ERROR"
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+            }
+        }
+
+        # GET /api/statistics - Get database statistics
+        Add-PodeRoute -Method Get -Path "/api/statistics" -ScriptBlock {
+            try {
+                $chromaDbPath  = $using:chromaDbPath
+                
+                # Basic statistics - could be expanded
+                $stats = @{
+                    chromadb_path = $chromaDbPath
+                    chromadb_exists = (Test-Path $chromaDbPath)
+                    default_collection = $using:DefaultCollectionName
+                    timestamp = (Get-Date -Format "o")
+                }
+                
+                Write-PodeJsonResponse -Value @{ success = $true; statistics = $stats }
+            } catch {
+                Write-Log "Error in GET /api/statistics: $_" -Level "ERROR"
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+            }
+        }
+
         # POST /api/search/chunks
         Add-PodeRoute -Method Post -Path "/api/search/chunks" -ScriptBlock {
             try {

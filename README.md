@@ -37,6 +37,55 @@
 | ⚙️ **Flexible Configuration** | Environment-based configuration with sensible defaults and easy customization |
 | ✅ **Comprehensive Testing** | 59+ automated tests with CI/CD pipeline for reliability |
 | �️ **Cross-Platform** | Works on Windows, Linux, and macOS |
+| 🖥️ **Graphical User Interface** | Professional PyQt6-based GUI for complete system management *(NEW!)* |
+
+## 🖥️ Graphical User Interface
+
+A comprehensive, modern GUI built with PyQt6 provides full control over all RAG operations through an intuitive interface.
+
+### Quick Start
+
+```powershell
+# Start the backend APIs first
+cd RAG\FileTracker
+.\Start-FileTrackerAPI.ps1
+
+# In another terminal
+cd RAG\Vectors
+.\Start-VectorsAPI.ps1
+
+# Install GUI dependencies (first time only)
+pip install PyQt6 requests
+
+# Launch the GUI
+.\Launch-GUI.ps1
+```
+
+### GUI Features
+
+- **📊 Dashboard**: Real-time system statistics, API health monitoring, and status overview
+- **📁 Collections Management**: Create, edit, delete collections with intuitive dialogs
+- **📄 Files Management**: View and manage files with filtering, search, and bulk operations
+- **🔍 Semantic Search**: Natural language search with adjustable parameters and result export
+- **👁 File Watchers**: Configure and monitor automated file watchers
+- **🔄 Auto-Refresh**: Real-time updates for status, statistics, and monitoring
+
+### Screenshots
+
+The GUI provides:
+- Modern, Material Design-inspired interface
+- Tab-based navigation for different operations
+- Real-time API connection indicators (🟢 online / 🔴 offline)
+- Color-coded status displays for files and operations
+- Context menus and keyboard shortcuts for efficiency
+- Export capabilities for search results
+- Comprehensive error handling and user feedback
+
+### Documentation
+
+- **Full GUI Documentation**: [`GUI/README.md`](GUI/README.md)
+- **Quick Start Guide**: [`GUI/QUICKSTART.md`](GUI/QUICKSTART.md)
+- **Development Summary**: [`GUI/DEVELOPMENT_SUMMARY.md`](GUI/DEVELOPMENT_SUMMARY.md)
 
 ## 🏗️ Architecture
 

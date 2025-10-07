@@ -5,9 +5,8 @@ param (
 
     [Parameter(Mandatory = $false, HelpMessage = "Ollama embedding model to use (e.g., mxbai-embed-large:latest)")]
     [ValidateNotNullOrEmpty()]
-    [ValidatePattern('^[\w\-]+:[\w\.\-]+$', ErrorMessage = "EmbeddingModel must be in format 'model:version'")]
+    [ValidatePattern('^[\w\.\-:]+$', ErrorMessage = "EmbeddingModel must be in format 'model'")]
     [string]$EmbeddingModel,
-    
     [Parameter(Mandatory = $false, HelpMessage = "Ollama API base URL")]
     [ValidateNotNullOrEmpty()]
     [ValidatePattern('^https?://.+', ErrorMessage = "OllamaUrl must start with http:// or https://")]
@@ -43,7 +42,7 @@ if ([string]::IsNullOrWhiteSpace($InstallPath)) {
     $InstallPath = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_INSTALL_PATH"
 }
 if ([string]::IsNullOrWhiteSpace($EmbeddingModel)) {
-    $EmbeddingModel = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_EMBEDDING_MODEL" -DefaultValue "mxbai-embed-large:latest"
+    $EmbeddingModel = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_EMBEDDING_MODEL" -DefaultValue "embeddinggemma"
 }
 if ([string]::IsNullOrWhiteSpace($OllamaUrl)) {
     $OllamaUrl = Get-CrossPlatformEnvVar -Name "OLLAMA_RAG_URL" -DefaultValue "http://localhost:11434"

@@ -67,8 +67,8 @@ $DatabasePath = Join-Path -Path $InstallPath -ChildPath "FileTracker.db"
 # Import required modules
 $fileTrackerSharedModulePath = Join-Path -Path $PSScriptRoot -ChildPath "FileTracker-Shared.psm1"
 $databaseSharedModulePath = Join-Path -Path $PSScriptRoot -ChildPath "Database-Shared.psm1"
-Import-Module -Name $fileTrackerSharedModulePath -Force -Verbose
-Import-Module -Name $databaseSharedModulePath -Force -Verbose -Global
+Import-Module -Name $fileTrackerSharedModulePath -Verbose -Global
+Import-Module -Name $databaseSharedModulePath -Verbose -Global
 
 # Determine Database Path (using the imported function)
 # $DatabasePath is already computed earlier in the script, just ensure it uses the function if needed
@@ -105,6 +105,7 @@ try {
                 message = "FileTracker API server running"
                 routes = @(
                     "/api/health - GET: Health check",
+                    "/api/statistics - GET: Get system statistics",
                     "/api/collections - GET: Get collections list",
                     "/api/collections - POST: New collection",
                     "/api/collections/{id} - GET: Get collection by ID",
@@ -635,7 +636,8 @@ try {
                 
             } catch {
                 Write-Log "Error in GET /files/$($WebEvent.Parameters['fileId'])/collection: $_" -Level "ERROR"
-                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }            }
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }            
+            }
         }
 
         # GET /health
@@ -653,6 +655,92 @@ try {
             } catch {
                 Write-Log "Error in GET /status: $_" -Level "ERROR"
                 Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" } # Corrected --StatusCode
+            }
+        }
+
+        # GET /api/processing/status - Get processing job status
+        Add-PodeRoute -Method Get -Path "/api/processing/status" -ScriptBlock {
+            try {
+                # Get all background jobs related to processing
+                $jobs = Get-Job | Where-Object { $_.Name -like "Watch_Collection_*" -or $_.Name -like "Process_*" }
+                
+                $jobsStatus = @()
+                foreach ($job in $jobs) {
+                    $jobsStatus += @{
+                        id = $job.Id
+                        name = $job.Name
+                        state = $job.State.ToString()
+                        hasMoreData = $job.HasMoreData
+                        startTime = if ($job.PSBeginTime) { $job.PSBeginTime.ToString("o") } else { $null }
+                    }
+                }
+                
+                Write-PodeJsonResponse -Value @{ 
+                    success = $true
+                    jobs = $jobsStatus
+                    count = $jobsStatus.Count
+                }
+            } catch {
+                Write-Log "Error in GET /api/processing/status: $_" -Level "ERROR"
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
+            }
+        }
+
+        # GET /api/statistics - Get system statistics
+        Add-PodeRoute -Method Get -Path "/api/statistics" -ScriptBlock {
+            try {
+                $conn = Get-DatabaseConnection -DatabasePath $using:localDatabasePath -InstallPath $using:localInstallPath
+                
+                # Get all statistics in a SINGLE query for better performance
+                $cmd = $conn.CreateCommand()
+                $cmd.CommandText = @"
+SELECT 
+    (SELECT COUNT(*) FROM collections) as collections_count,
+    COUNT(*) as total_files,
+    SUM(CASE WHEN Deleted = 0 THEN 1 ELSE 0 END) as active_files,
+    SUM(CASE WHEN Deleted = 0 AND Dirty = 1 THEN 1 ELSE 0 END) as dirty_files,
+    SUM(CASE WHEN Deleted = 0 AND Dirty = 0 THEN 1 ELSE 0 END) as processed_files,
+    SUM(CASE WHEN Deleted = 1 THEN 1 ELSE 0 END) as deleted_files
+FROM files
+"@
+                
+                $reader = $cmd.ExecuteReader()
+                
+                if ($reader.Read()) {
+                    $collectionsCount = $reader.GetInt32(0)
+                    $totalFiles = $reader.GetInt32(1)
+                    $activeFiles = $reader.GetInt32(2)
+                    $dirtyFiles = $reader.GetInt32(3)
+                    $processedFiles = $reader.GetInt32(4)
+                    $deletedFiles = $reader.GetInt32(5)
+                } else {
+                    # Fallback if no rows (shouldn't happen)
+                    $collectionsCount = 0
+                    $totalFiles = 0
+                    $activeFiles = 0
+                    $dirtyFiles = 0
+                    $processedFiles = 0
+                    $deletedFiles = 0
+                }
+                
+                $reader.Close()
+                $conn.Close()
+                
+                Write-PodeJsonResponse -Value @{ 
+                    success = $true
+                    statistics = @{
+                        collections_count = $collectionsCount
+                        total_files = $totalFiles
+                        dirty_files = $dirtyFiles
+                        processed_files = $processedFiles
+                        deleted_files = $deletedFiles
+                        database_path = $using:localDatabasePath
+                        timestamp = (Get-Date -Format "o")
+                    }
+                }
+            } catch {
+                Write-Log "Error in GET /api/statistics: $_" -Level "ERROR"
+                Write-PodeJsonResponse -StatusCode 500 -Value @{ success = $false; error = "Internal Server Error: $($_.Exception.Message)" }
             }
         }
     }
